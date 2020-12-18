@@ -337,7 +337,7 @@ ib_pp_barrier(int mr_id, int32_t server)
             (int)wc.wr_id);
     }
 }
-//! gdr
+//do we need this? possible
 size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
 {
     /* allocate memory and register it with the protection domain */
@@ -359,89 +359,65 @@ size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
     return 0;
 }
 
-size_t ib_allocate_memreg(void** mem_address, size_t memsize, int mr_id)
+size_t ib_allocate_memreg(void **mem_address, size_t memsize, int mr_id, bool gpumemreg)
 {
     /* allocate memory and register it with the protection domain */
     int res;
-    size_t real_size = PAGE_ROUND_UP(memsize+2);
-    if (mem_address == NULL) return 0;
-    fprintf(stderr, "[INFO] Communication buffer size: %u KiB\n", real_size/1024);
-    if ((res = posix_memalign((void*)mem_address,
-                  0x1000,
-                  real_size)) < 0) {
-        fprintf(stderr,
-                "ERROR: Could not allocate mem for communication bufer "
-                " - %d (%s). Abort!\n", res, strerror(res));
-        exit(-1);
+    size_t real_size = PAGE_ROUND_UP(memsize + 2);
+    if (mem_address == NULL)
+        return 0;
+    fprintf(stderr, "[INFO] Communication buffer size: %u KiB\n", real_size / 1024);
+
+    if (gpumemreg)
+    {
+        printf("gpu path.... \n");
+        if ((res = cudaMalloc(mem_address, real_size)) != cudaSuccess)
+        {
+            fprintf(stderr,
+                    "ERROR: Could not allocate mem for communication bufer "
+                    " - %d (%s). Abort!\n",
+                    res, strerror(res));
+            exit(-1);
+        }
+        if ((res = cudaMemset(*mem_address, 0, real_size)) != cudaSuccess)
+        {
+            fprintf(stderr,
+                    "ERROR: Could not initialize mem for communication bufer "
+                    " - %d (%s). Abort!\n",
+                    res, strerror(res));
+            exit(-1);
+        }
     }
-    memset(*mem_address, 0x0, real_size);
+    else
+    {
+        if ((res = posix_memalign((void *)mem_address,
+                                  0x1000,
+                                  real_size)) < 0)
+        {
+            fprintf(stderr,
+                    "ERROR: Could not allocate mem for communication bufer "
+                    " - %d (%s). Abort!\n",
+                    res, strerror(res));
+            exit(-1);
+        }
+        memset(*mem_address, 0x0, real_size);
+    }
 
     if ((mrs[mr_id] = ibv_reg_mr(ib_pp_com_hndl.pd,
-                                    *mem_address,
-                                    real_size,
-                        IBV_ACCESS_LOCAL_WRITE |
-                        IBV_ACCESS_REMOTE_WRITE)) == NULL) {
+                                 *mem_address,
+                                 real_size,
+                                 IBV_ACCESS_LOCAL_WRITE |
+                                     IBV_ACCESS_REMOTE_WRITE)) == NULL)
+    {
         fprintf(stderr,
                 "ERROR: Could not register the memory region "
-            "- %d (%s). Abort!\n",
-            errno,
-            strerror(errno));
+                "- %d (%s). Abort!\n",
+                errno,
+                strerror(errno));
         exit(errno);
     }
     return 0;
 }
-
-//pin memory before transfer (but not neccessary after transfer: lazy pinning )[already part of driver? -> ibv_reg_mr "pins mem"]
-size_t ib_allocate_gpu_memreg(void** mem_address, int memsize, int mr_id)
-{
-
-/*printf("allocate_gpu_memreg called.... \n");
-
-if((mrs[mr_id] = ibv_reg_mr(ib_pp_com_hndl.pd,gpu_mem_address,memsize, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ)) == NULL){
-    fprintf(stderr,
-                "ERROR: Could not register the GPU memory region "
-            "- %d (%s). Abort!\n",
-            errno,
-            strerror(errno));
-        exit(errno);
-};
-
-    return 0;*/
-/* allocate memory and register it with the protection domain */
-    int res;
-    size_t real_size = PAGE_ROUND_UP(memsize+2);
-    if (mem_address == NULL) return 0;
-    fprintf(stderr, "[INFO] Communication buffer size: %u KiB\n", real_size/1024);
-    if ((res = cudaMalloc(mem_address, real_size)) != cudaSuccess) {
-        fprintf(stderr,
-                "ERROR: Could not allocate mem for communication bufer "
-                " - %d (%s). Abort!\n", res, strerror(res));
-        exit(-1);
-    }
-    if ((res = cudaMemset(*mem_address, 0, real_size)) != cudaSuccess) {
-        fprintf(stderr,
-                "ERROR: Could not initialize mem for communication bufer "
-                " - %d (%s). Abort!\n", res, strerror(res));
-        exit(-1);
-    }
-
-    if ((mrs[mr_id] = ibv_reg_mr(ib_pp_com_hndl.pd,
-                                    *mem_address,
-                                    real_size,
-                        IBV_ACCESS_LOCAL_WRITE |
-                        IBV_ACCESS_REMOTE_WRITE)) == NULL) {
-        fprintf(stderr,
-                "ERROR: Could not register the memory region "
-            "- %d (%s). Abort!\n",
-            errno,
-            strerror(errno));
-        exit(errno);
-    }
-    return 0;
-
-}
-
-
 
 
 /* initialize communication buffer for data transfer */
@@ -621,52 +597,32 @@ void cleanup_send_list(void)
 }
 
 void
-ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id)
+ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id, bool gpumemreg)
 {
     
     //memset(ib_pp_com_hndl.loc_com_buf.send_buf, 0x42, ib_pp_com_hndl.buf_size);
-    uint8_t one = 1;
-    /* create work request */
-    struct ibv_send_wr *send_wr =  prepare_send_list_elem();
-    *((uint8_t*)memreg + length) = 1;
-
-    send_wr->sg_list->addr      = (uintptr_t)memreg;
-    send_wr->sg_list->length    = length+1;
-    send_wr->sg_list->lkey      = mrs[mr_id]->lkey;
-
-    send_wr->wr.rdma.rkey       = ib_pp_com_hndl.rem_com_buf.qp_info.key;
-    send_wr->wr.rdma.remote_addr    = (uintptr_t)ib_pp_com_hndl.rem_com_buf.recv_buf;
-
-
-    send_wr->wr_id          = IB_PP_WRITE_WR_ID;
-    send_wr->opcode			= IBV_WR_RDMA_WRITE_WITH_IMM;
-	send_wr->send_flags		= IBV_SEND_SIGNALED | IBV_SEND_SOLICITED;
-	send_wr->imm_data		= htonl(0x1);
-
-    ib_pp_com_hndl.send_wr = send_wr;
-
-}
-
-void
-ib_pp_prepare_gpu_run(void *memreg, uint32_t length, int mr_id)
-{
-    
-    //memset(ib_pp_com_hndl.loc_com_buf.send_buf, 0x42, ib_pp_com_hndl.buf_size);
-    //uint8_t one = 1;
     static uint8_t one = 1;
     /* create work request */
-    struct ibv_send_wr *send_wr =  prepare_send_list_elem();
-    //cudaMemcpy(memreg + length, &one, 1 ,cudaMemcpyHostToDevice);
-    if (cudaMemcpy(memreg+length, &one, 1, cudaMemcpyHostToDevice) != cudaSuccess) {
-        fprintf(stderr, "error");
+    struct ibv_send_wr *send_wr = prepare_send_list_elem();
+
+    if (gpumemreg)
+    {
+        printf("gpu path... \n");
+        if (cudaMemcpy(memreg + length, &one, 1, cudaMemcpyHostToDevice) != cudaSuccess)
+        {
+            fprintf(stderr, "error");
+        }
     }
-//    *((uint8_t*)memreg + length) = 1;
+    else
+    {
+        *((uint8_t *)memreg + length) = 1;
+    }
 
-    send_wr->sg_list->addr      = (uintptr_t)memreg;
-    send_wr->sg_list->length    = length+1;
-    send_wr->sg_list->lkey      = mrs[mr_id]->lkey;
+    send_wr->sg_list->addr = (uintptr_t)memreg;
+    send_wr->sg_list->length = length + 1;
+    send_wr->sg_list->lkey = mrs[mr_id]->lkey;
 
-    send_wr->wr.rdma.rkey       = ib_pp_com_hndl.rem_com_buf.qp_info.key;
+    send_wr->wr.rdma.rkey = ib_pp_com_hndl.rem_com_buf.qp_info.key;
     send_wr->wr.rdma.remote_addr    = (uintptr_t)ib_pp_com_hndl.rem_com_buf.recv_buf;
 
 
@@ -678,6 +634,7 @@ ib_pp_prepare_gpu_run(void *memreg, uint32_t length, int mr_id)
     ib_pp_com_hndl.send_wr = send_wr;
 
 }
+
 
 /* send data */
 void
@@ -929,9 +886,9 @@ int ib_connect_client(void *memreg, int mr_id, char *server_address)
     return 0;
 }
 
-void ib_free_memreg(void* memreg, int mr_id)
+void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg)
 {
-    /* free memory regions */
+    /* free memory regions*/ 
     printf("Deregistering memory ... \n");
     if (ibv_dereg_mr(mrs[mr_id]) < 0) {
         fprintf(stderr,
@@ -942,24 +899,14 @@ void ib_free_memreg(void* memreg, int mr_id)
             strerror(errno));
         exit(errno);
     }
-    free(memreg);
+
+    if(gpumemreg){
+        cudaFree(memreg);
+    }else{
+        free(memreg);
+    }
 }
 
-void ib_free_gpu_memreg(void* memreg, int mr_id)
-{
-    /* free memory regions */
-    printf("Deregistering memory ... \n");
-    if (ibv_dereg_mr(mrs[mr_id]) < 0) {
-        fprintf(stderr,
-                "ERROR: Could not de-register  "
-            "segment "
-            "- %d (%s). Abort!\n",
-            errno,
-            strerror(errno));
-        exit(errno);
-    }
-    cudaFree(memreg);
-}
 
 
 void ib_cleanup(void)
@@ -1045,7 +992,7 @@ int ib_server_recv(void *memptr, int mr_id, size_t length)
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
            ib_pp_com_hndl.rem_com_buf.qp_info.key);*/
 
-    ib_pp_prepare_gpu_run(memptr, length, mr_id);
+    ib_pp_prepare_run(memptr, length, mr_id, true);
     ib_pp_msg_recv(&ib_pp_com_hndl, length, mr_id);
     
     char* str = (char*)malloc(length);
@@ -1075,7 +1022,7 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node)
     strcpy((char*)memptr, "Hello world from distant shores!");
     printf("want to send: %s\n", (char*)memptr);
     
-    ib_pp_prepare_run(memptr, length, mr_id);
+    ib_pp_prepare_run(memptr, length, mr_id, false);
     ib_pp_msg_send(&ib_pp_com_hndl);
 }
 
@@ -1125,13 +1072,13 @@ int main(int argc, char **argv)
     void *memptr, *gpumemptr;
     ib_init(device_id_param);
     if (server) {
-        ib_allocate_gpu_memreg(&gpumemptr, MAX_LEN, 0);
+        ib_allocate_memreg(&gpumemptr, MAX_LEN, 0, true);
         ib_server_recv(gpumemptr, 0, MAX_LEN);
-        ib_free_gpu_memreg(gpumemptr, 0);
+        ib_free_memreg(gpumemptr, 0, true);
     } else { //client
-        ib_allocate_memreg(&memptr, MAX_LEN, 1);
+        ib_allocate_memreg(&memptr, MAX_LEN, 1, false);
         ib_client_send(memptr, 1, MAX_LEN, peer_node);
-        ib_free_memreg(memptr, 1);
+        ib_free_memreg(memptr, 1, false);
     }
     /* wait for opponent */
     printf("Enter barrier ...\n");
