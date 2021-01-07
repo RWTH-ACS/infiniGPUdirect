@@ -17,7 +17,6 @@
  * limitations under the License.
  *
  */
-
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -52,6 +51,7 @@
 #define MAX_RECV_SGE    (1)
 
 #define TCP_PORT    (4211)
+
 
 /*
  * Helper data types
@@ -975,7 +975,7 @@ void ib_final_cleanup(void)
     printf("Done!\n");
 }
 
-int ib_server_recv(void *memptr, int mr_id, size_t length)
+int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
 {
     ib_connect_server(memptr, mr_id);
 
@@ -991,19 +991,33 @@ int ib_server_recv(void *memptr, int mr_id, size_t length)
            ib_pp_com_hndl.rem_com_buf.qp_info.psn,
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
            ib_pp_com_hndl.rem_com_buf.qp_info.key);*/
-
+    if(togpumem){
     ib_pp_prepare_run(memptr, length, mr_id, true);
+    }
+    else{
+    ib_pp_prepare_run(memptr, length, mr_id, false);
+    }
     ib_pp_msg_recv(&ib_pp_com_hndl, length, mr_id);
     
-    char* str = (char*)malloc(length);
-
-    cudaMemcpy(str, memptr, length, cudaMemcpyDeviceToHost);
+    int* vector = (int*)malloc(length);
+    if(togpumem){
+    cudaMemcpy(vector, memptr, length, cudaMemcpyDeviceToHost);
+    }
+    else
+    {
+    memcpy(vector, memptr, length);
+    }
+    
     //ib_pp_msg_send(&ib_pp_com_hndl);
-    printf("received: %s\n", str);
+    printf("received:");
+    for(int i = 0; i < 5; i++){
+        printf("%d", vector[i]);
+    }
+    printf("\n");
     return 0;
 }
 
-int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node)
+int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
     ib_connect_client(memptr, mr_id, peer_node);
 
@@ -1019,15 +1033,52 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node)
            ib_pp_com_hndl.rem_com_buf.qp_info.psn,
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
            ib_pp_com_hndl.rem_com_buf.qp_info.key);*/
-    strcpy((char*)memptr, "Hello world from distant shores!");
-    printf("want to send: %s\n", (char*)memptr);
-    
+
+    int* vector = (int*)malloc(length);
+
+    if(mr_id == 0 && !fromgpumem){
+     for(int i = 0; i < 5; i++){
+        vector[i] = i;
+    }
+    memcpy((int*)memptr, vector, length);
+    }
+    else if (fromgpumem){
+        for(int i = 0; i < 5; i++){
+        vector[i] = i + 10;
+    }
+    cudaMemcpy(memptr, vector, length, cudaMemcpyHostToDevice);
+    }
+    else{
+    for(int i = 0; i < 5; i++){
+        vector[i] = i + 5;
+    }
+    memcpy((int*)memptr, vector, length);
+    }
+    printf("sending: ");
+    for(int i = 0; i < 5; i++){
+        printf("%d",vector[i]);
+    }
+    printf("\n");
+
+    if(fromgpumem){
+    ib_pp_prepare_run(memptr, length, mr_id, true);
+    }
+    else{
     ib_pp_prepare_run(memptr, length, mr_id, false);
+    }
     ib_pp_msg_send(&ib_pp_com_hndl);
 }
 
-#define NAME_LENGTH 128
+int ib_server_send_result(void *memptr, int mr_id, int length, char *peer_node, bool fromgpumem)
+{
+    ib_connect_client(memptr, mr_id, peer_node);
+    ib_pp_prepare_run(memptr, length, mr_id, true);
+    ib_pp_msg_send(&ib_pp_com_hndl);
+}
+
+/*#define NAME_LENGTH 128
 #define MAX_LEN 32
+#define LENGTH 5
 int main(int argc, char **argv)
 {
         int arg             = 0;
@@ -1069,18 +1120,52 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    void *memptr, *gpumemptr;
+    size_t size = LENGTH * sizeof(int);
+
+    void *memptr0, *memptr1, *memptr2; 
+    void *gpumemptr0, *gpumemptr1, *gpumemptr2;
+
     ib_init(device_id_param);
     if (server) {
-        ib_allocate_memreg(&gpumemptr, MAX_LEN, 0, true);
-        ib_server_recv(gpumemptr, 0, MAX_LEN);
-        ib_free_memreg(gpumemptr, 0, true);
-    } else { //client
-        ib_allocate_memreg(&memptr, MAX_LEN, 1, false);
-        ib_client_send(memptr, 1, MAX_LEN, peer_node);
-        ib_free_memreg(memptr, 1, false);
+        ib_allocate_memreg(&gpumemptr0, size, 0, true);
+        ib_allocate_memreg(&gpumemptr1, size, 1, true);
+        ib_allocate_memreg(&gpumemptr2, size, 2, true);
+
+        ib_server_recv(gpumemptr0, 0, size, true);
+        ib_server_recv(gpumemptr1, 1, size, true);
+
+        ib_client_send(gpumemptr2, 2 , size, peer_node,true);
+
+        // Invoke kernel
+/*        int threadsPerBlock = 256;
+        int blocksPerGrid = (MAX_LEN + threadsPerBlock - 1) / threadsPerBlock;
+        VecAdd<<<blocksPerGrid, threadsPerBlock>>>(gpumemptr0, gpumemptr1, gpumemptr2, MAX_LEN);
+
+        char *str = (char *)malloc(length);
+
+        cudaMemcpy(str, gpumemptr2, MAX_LEN, cudaMemcpyDeviceToHost);
+        printf("received: %s\n", str);*//*
+        ib_free_memreg(gpumemptr0, 0, true);
+        ib_free_memreg(gpumemptr1, 1, true);
+        ib_free_memreg(gpumemptr2, 2, true);
+
     }
-    /* wait for opponent */
+    else
+    { //client
+        ib_allocate_memreg(&memptr0, size, 0, false);
+        ib_allocate_memreg(&memptr1, size, 1, false);
+        ib_allocate_memreg(&memptr2, size, 2, false);
+
+        ib_client_send(memptr0, 0, size, peer_node, false);
+        ib_client_send(memptr1, 1, size, peer_node, false);
+
+        ib_server_recv(memptr2, 2, size, false);
+
+        ib_free_memreg(memptr0, 0, false);
+        ib_free_memreg(memptr1, 1, false);
+        ib_free_memreg(memptr2, 2, false);
+    }
+    /* wait for opponent *//*
     printf("Enter barrier ...\n");
     //ib_pp_barrier(0, server);
     printf("Benchmark finished!\n");
@@ -1090,5 +1175,5 @@ int main(int argc, char **argv)
 
     return 0;
 
-}
+}*/
 
