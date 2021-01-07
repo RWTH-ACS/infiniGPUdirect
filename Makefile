@@ -13,13 +13,16 @@ LD_FLAGS = $(LIB_FLAGS) -libverbs -lcudart
 
 
 
-ibTest: main.o ib.o 
+ibTest: main.o ib.o vecAdd.o
 	$(LD) $(CC_FLAGS) -o $@ $^ $(LD_FLAGS)
 
 ib.o: ib.c
 	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
 
 main.o: main.c
+	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
+
+vecAdd.o: vecAdd.cu
 	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
 
 

@@ -71,17 +71,11 @@ int main(int argc, char **argv)
         ib_server_recv(gpumemptr0, 0, size, true);
         ib_server_recv(gpumemptr1, 1, size, true);
 
-        ib_client_send(gpumemptr2, 2 , size, peer_node,true);
+        printf("Calculating vector addition ... \n");
+        vecAdd(gpumemptr0, gpumemptr1, gpumemptr2, LENGTH);
 
-        // Invoke kernel
-/*        int threadsPerBlock = 256;
-        int blocksPerGrid = (MAX_LEN + threadsPerBlock - 1) / threadsPerBlock;
-        VecAdd<<<blocksPerGrid, threadsPerBlock>>>(gpumemptr0, gpumemptr1, gpumemptr2, MAX_LEN);
+        ib_server_send_result(gpumemptr2, 2 , size, peer_node);
 
-        char *str = (char *)malloc(length);
-
-        cudaMemcpy(str, gpumemptr2, MAX_LEN, cudaMemcpyDeviceToHost);
-        printf("received: %s\n", str);*/
         ib_free_memreg(gpumemptr0, 0, true);
         ib_free_memreg(gpumemptr1, 1, true);
         ib_free_memreg(gpumemptr2, 2, true);
