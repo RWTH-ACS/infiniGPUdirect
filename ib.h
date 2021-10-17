@@ -1,4 +1,5 @@
-
+#ifndef _CPU_IB_H_
+#define _CPU_IB_H_
 #include <stdbool.h>
 
 int ib_init(int _device_id);
@@ -12,5 +13,6 @@ int ib_server_recv(void *memptr, int mr_id, int length, bool togpumem);
 int ib_client_send(void *memptr, int mr_id, int length, char *peer_node, bool fromgpumem);
 int ib_server_send_result(void *memptr, int mr_id, int length, char *peer_node);
 
+#endif
 
 

@@ -366,11 +366,10 @@ size_t ib_allocate_memreg(void **mem_address, size_t memsize, int mr_id, bool gp
     size_t real_size = PAGE_ROUND_UP(memsize + 2);
     if (mem_address == NULL)
         return 0;
-    fprintf(stderr, "[INFO] Communication buffer size: %u KiB\n", real_size / 1024);
+//    fprintf(stderr, "[INFO] Communication buffer size: %u KiB\n", real_size / 1024);
 
     if (gpumemreg)
     {
-        printf("gpu path.... \n");
         if ((res = cudaMalloc(mem_address, real_size)) != cudaSuccess)
         {
             fprintf(stderr,
@@ -607,7 +606,6 @@ ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id, bool gpumemreg)
 
     if (gpumemreg)
     {
-        printf("gpu path... \n");
         if (cudaMemcpy(memreg + length, &one, 1, cudaMemcpyHostToDevice) != cudaSuccess)
         {
             fprintf(stderr, "error");
@@ -617,6 +615,8 @@ ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id, bool gpumemreg)
     {
         *((uint8_t *)memreg + length) = 1;
     }
+
+
 
     send_wr->sg_list->addr = (uintptr_t)memreg;
     send_wr->sg_list->length = length + 1;
@@ -764,6 +764,7 @@ int ib_init(int _device_id)
 
     /* find device with active port */
     size_t cur_dev = device_id;
+
     for (; cur_dev<(size_t)num_devices; ++cur_dev){
         /* open the device context */
         if ((ib_pp_com_hndl.ctx = ibv_open_device(device_list[cur_dev])) == NULL) {
@@ -827,10 +828,10 @@ int ib_init(int _device_id)
         exit(EXIT_FAILURE);
     }
 
-    /*fprintf(stderr, "[INFO] Using device '%s' and port %u\n",
+    fprintf(stderr, "[INFO] Using device '%s' and port %u\n",
             ibv_get_device_name(device_list[cur_dev]),
             ib_pp_com_hndl.used_port);
-*/
+
     /* allocate protection domain */
     if ((ib_pp_com_hndl.pd = ibv_alloc_pd(ib_pp_com_hndl.ctx)) == NULL) {
         fprintf(stderr,
@@ -889,7 +890,7 @@ int ib_connect_client(void *memreg, int mr_id, char *server_address)
 void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg)
 {
     /* free memory regions*/ 
-    printf("Deregistering memory ... \n");
+//    printf("Deregistering memory ... \n");
     if (ibv_dereg_mr(mrs[mr_id]) < 0) {
         fprintf(stderr,
                 "ERROR: Could not de-register  "
@@ -912,7 +913,7 @@ void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg)
 void ib_cleanup(void)
 {
     /* destroy qp */
-    printf("Destroying queue pair ... \n");
+//    printf("Destroying queue pair ... \n");
     if (ibv_destroy_qp(ib_pp_com_hndl.qp) < 0) {
         fprintf(stderr,
                 "ERROR: Could not destroy QP "
@@ -923,7 +924,7 @@ void ib_cleanup(void)
     }
 
     /* destroy completion queues */
-    printf("Destroying completion queue ... \n");
+//    printf("Destroying completion queue ... \n");
     if (ibv_destroy_cq(ib_pp_com_hndl.cq) < 0) {
         fprintf(stderr,
                 "ERROR: Could not destroy CQ"
@@ -950,7 +951,7 @@ void ib_cleanup(void)
 void ib_final_cleanup(void) 
 {
     /* free protection domain */
-    printf("Deallocating PD ... \n");
+//    printf("Deallocating PD ... \n");
     if (ibv_dealloc_pd(ib_pp_com_hndl.pd) < 0) {
         fprintf(stderr,
             "ERROR: Unable to de-allocate PD "
@@ -962,7 +963,7 @@ void ib_final_cleanup(void)
     }
 
     /* close device context */
-    printf("Closing device ... \n");
+//    printf("Closing device ... \n");
     if (ibv_close_device(ib_pp_com_hndl.ctx) < 0) {
         fprintf(stderr,
             "ERROR: Unable to close device context "
@@ -972,14 +973,14 @@ void ib_final_cleanup(void)
             strerror(errno));
         exit(errno);
     }
-    printf("Done!\n");
+//    printf("Done!\n");
 }
 
 int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
 {
     ib_connect_server(memptr, mr_id);
 
-    /*printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
+/*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
            ib_pp_com_hndl.loc_com_buf.qp_info.lid,
            ib_pp_com_hndl.loc_com_buf.qp_info.qpn,
            ib_pp_com_hndl.loc_com_buf.qp_info.psn,
@@ -990,7 +991,7 @@ int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
            ib_pp_com_hndl.rem_com_buf.qp_info.qpn,
            ib_pp_com_hndl.rem_com_buf.qp_info.psn,
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
-           ib_pp_com_hndl.rem_com_buf.qp_info.key);*/
+           ib_pp_com_hndl.rem_com_buf.qp_info.key); */
     if(togpumem){
     ib_pp_prepare_run(memptr, length, mr_id, true);
     }
@@ -999,21 +1000,6 @@ int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
     }
     ib_pp_msg_recv(&ib_pp_com_hndl, length, mr_id);
     
-    int* vector = (int*)malloc(length);
-    if(togpumem){
-    cudaMemcpy(vector, memptr, length, cudaMemcpyDeviceToHost);
-    }
-    else
-    {
-    memcpy(vector, memptr, length);
-    }
-    
-    //ib_pp_msg_send(&ib_pp_com_hndl);
-    printf("received:");
-    for(int i = 0; i < 5; i++){
-        printf(" %d,", vector[i]);
-    }
-    printf("\n");
     return 0;
 }
 
@@ -1021,7 +1007,7 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool
 {
     ib_connect_client(memptr, mr_id, peer_node);
 
-    /*printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
+/*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
            ib_pp_com_hndl.loc_com_buf.qp_info.lid,
            ib_pp_com_hndl.loc_com_buf.qp_info.qpn,
            ib_pp_com_hndl.loc_com_buf.qp_info.psn,
@@ -1032,33 +1018,8 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool
            ib_pp_com_hndl.rem_com_buf.qp_info.qpn,
            ib_pp_com_hndl.rem_com_buf.qp_info.psn,
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
-           ib_pp_com_hndl.rem_com_buf.qp_info.key);*/
+           ib_pp_com_hndl.rem_com_buf.qp_info.key); */
 
-    int* vector = (int*)malloc(length);
-
-    if(mr_id == 0 && !fromgpumem){
-     for(int i = 0; i < 5; i++){
-        vector[i] = i;
-    }
-    memcpy((int*)memptr, vector, length);
-    }
-    else if (fromgpumem){
-        for(int i = 0; i < 5; i++){
-        vector[i] = i + 10;
-    }
-    cudaMemcpy(memptr, vector, length, cudaMemcpyHostToDevice);
-    }
-    else{
-    for(int i = 0; i < 5; i++){
-        vector[i] = i + 5;
-    }
-    memcpy((int*)memptr, vector, length);
-    }
-    printf("sending: ");
-    for(int i = 0; i < 5; i++){
-        printf(" %d,",vector[i]);
-    }
-    printf("\n");
 
     if(fromgpumem){
     ib_pp_prepare_run(memptr, length, mr_id, true);
@@ -1069,13 +1030,4 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool
     ib_pp_msg_send(&ib_pp_com_hndl);
 }
 
-int ib_server_send_result(void *memptr, int mr_id, int length, char *peer_node)
-{
-    printf("sending result ... \n");
 
-    ib_connect_client(memptr, mr_id, peer_node);
-    ib_pp_prepare_run(memptr, length, mr_id, true);
-    ib_pp_msg_send(&ib_pp_com_hndl);
-
-    return 0;
-}
