@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -32,22 +33,18 @@ void testBandwidthServer(unsigned int memSize, char *peer_node)
 {
 
     // ...... Host to Device
-
-    float elapsedTimeInMs = 0.0f;
     float bandwidthInGBs = 0.0f;
 
     void *d_odata;
-    // allocate memory
     ib_allocate_memreg(&d_odata, memSize, 1, true);
 
-    // copy data from Host to GPU
+    // copy data from GPU to Host
 
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_server_recv(d_odata, 1, memSize, true);
     }
 
-    // clean up memory
     ib_free_memreg(d_odata, 1, true);
 
     //........Device to Host
@@ -55,10 +52,9 @@ void testBandwidthServer(unsigned int memSize, char *peer_node)
     void *h_idata;
     void *d_idata;
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    struct timeval start, end;
 
+    // allocate memory
     ib_allocate_memreg(&h_idata, memSize, 0, false);
     ib_allocate_memreg(&d_idata, memSize, 1, true);
 
@@ -68,26 +64,25 @@ void testBandwidthServer(unsigned int memSize, char *peer_node)
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
     // copy data from GPU to Host
-    cudaEventRecord(start, 0);
+    gettimeofday(&start, NULL);
+    
 
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(d_idata, 1, memSize, peer_node, true);
     }
 
-    cudaEventRecord(stop, 0);
-    cudaDeviceSynchronize();
-    cudaEventElapsedTime(&elapsedTimeInMs, start, stop);
+
+    gettimeofday(&end, NULL);
 
     // calculate bandwidth in GB/s
-    double time_s = elapsedTimeInMs / 1e3;
+    double time_s = (end.tv_sec - start.tv_sec) * 1e6;
+    time_s = (time_s + (end.tv_usec - start.tv_usec)) * 1e-6;
+
     bandwidthInGBs = (memSize * (float)MEMCOPY_ITERATIONS) / (double)1e9;
     bandwidthInGBs = bandwidthInGBs / time_s;
 
     // clean up memory
-
-    cudaEventDestroy(stop);
-    cudaEventDestroy(start);
 
     ib_free_memreg(h_idata, 0, false);
     ib_free_memreg(d_idata, 1, true);
@@ -99,40 +94,35 @@ void testBandwidthServer(unsigned int memSize, char *peer_node)
 void testBandwidthClient(unsigned int memSize, char *peer_node)
 {
 
-    //    Host to Device ............#############################################
-    float elapsedTimeInMs = 0.0f;
+    //    Host to Device ............
     float bandwidthInGBs = 0.0f;
     void *h_idata;
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    struct timeval start, end;
 
     // allocate memory
     ib_allocate_memreg(&h_idata, memSize, 1, false);
     memset(h_idata, 1, memSize);
 
-    // copy data from Host to GPU
-    cudaEventRecord(start, 0);
+    // copy data from GPU to Host
+    gettimeofday(&start, NULL);
+
 
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(h_idata, 1, memSize, peer_node, false);
     }
 
-    cudaEventRecord(stop, 0);
-    cudaDeviceSynchronize();
-    cudaEventElapsedTime(&elapsedTimeInMs, start, stop);
+    gettimeofday(&end, NULL);
 
     // calculate bandwidth in GB/s
-    double time_s = elapsedTimeInMs / 1e3;
+    double time_s = (end.tv_sec - start.tv_sec) * 1e6;
+    time_s = (time_s + (end.tv_usec - start.tv_usec)) * 1e-6;
+
     bandwidthInGBs = (memSize * (float)MEMCOPY_ITERATIONS) / (double)1e9;
     bandwidthInGBs = bandwidthInGBs / time_s;
 
     // clean up memory
-
-    cudaEventDestroy(stop);
-    cudaEventDestroy(start);
 
     ib_free_memreg(h_idata, 1, false);
 
@@ -143,7 +133,6 @@ void testBandwidthClient(unsigned int memSize, char *peer_node)
 
     void *h_odata = NULL;
 
-    // allocate memory
     ib_allocate_memreg(&h_odata, memSize, 1, false);
 
     // copy data from GPU to Host
@@ -153,7 +142,6 @@ void testBandwidthClient(unsigned int memSize, char *peer_node)
         ib_server_recv(h_odata, 1, memSize, false);
     }
 
-    // clean up memory
     ib_free_memreg(h_odata, 1, false);
 }
 
@@ -183,9 +171,8 @@ int main(int argc, char **argv)
             gpu_id = atoi(optarg);
             break;
         case 'h':
-            printf("usage: %s "
-                   "-s/-c -p <peer_node>\n -d   <IB device ID> (default 0)\n -g   <GPU ID> (default 0)\n", argv[0]);
-                   return 0;
+            printf("usage ./%s "
+                   "-s/-c -p <peer_node>\n -d   IB device ID (default 0)\n -g   GPU ID (default 0)\n", argv[0]);
             break;
 
         }
@@ -223,7 +210,7 @@ int main(int argc, char **argv)
 
         cudaSetDevice(gpu_id);
 
-        printf("[INFO] Using GPU: %d\n", gpu_id);
+        printf("Using GPU: %d\n", gpu_id);
 
         printf("-----------------------------------------------\n");
 
@@ -240,8 +227,6 @@ int main(int argc, char **argv)
     { //client
 
 //        printInfo();
-
-        cudaSetDevice(0);
 
         flush_buf = (char *)malloc(FLUSH_SIZE);
 
