@@ -10,6 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <sys/time.h>
+#include <math.h>
 
 #include <infiniband/verbs.h>
 #include <arpa/inet.h>
@@ -21,7 +22,7 @@
 #define MAX_LEN 32
 #define LENGTH 5
 
-#define MEMCOPY_ITERATIONS 10
+#define MEMCOPY_ITERATIONS 25
 #define WARMUP_ITERATIONS 3
 //#define DEFAULT_SIZE (32 * (1e6))      // 32 M
 #define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
@@ -58,7 +59,7 @@ int printInfo()
 enum print_flags {
     GB = 1,      // Bandwidth in GB/s
     GIB = 2,     // Bandwidth in GiB/s
-    VAR = 4,     // Variance
+    STDDEV = 4,  // Std. Deviation
     INDVAL = 8,  // Each individual value
     AVG = 16,    // Average time
     ALL = 0xFF,  // All above
@@ -84,14 +85,15 @@ void print_times(enum print_flags flags, size_t memSize)
     if (flags & AVG) {
         printf("Average Time: %f s\n", avg);
     }
-    if (flags & VAR) {
+    if (flags & STDDEV) {
         val = 0;
         for (int i = 0; i < MEMCOPY_ITERATIONS; i++)
         {
             val += (times[i]-avg)*(times[i]-avg);
         }
         val /= MEMCOPY_ITERATIONS;
-        printf("Variance %f s\n", val);
+        val = sqrt(val);
+        printf("Std. Deviation %f s\n", val);
     }
     // calculate bandwidth in GB/s
     if (flags & GB) {
