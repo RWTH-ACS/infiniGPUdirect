@@ -122,11 +122,15 @@ void testBandwidthServer(size_t memSize, char *peer_node)
 
     // copy data from GPU to Host
 
+    printf("preparing server...\n");
+    //ib_server_prepare(d_odata, 1, memSize, true);
+
+    printf("receiving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
         ib_server_recv(d_odata, 1, memSize, true);
     }
-
+    printf("finished. cleaning up...\n");
     ib_free_memreg(d_odata, 1, true);
 
     //........Device to Host
@@ -145,20 +149,24 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     // initialize the device memory
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
+    printf("preparing client...\n");
+    //ib_client_prepare(d_idata, 1, memSize, peer_node, true);
+
+    printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
         ib_client_send(d_idata, 1, memSize, peer_node, true);
     }
     // copy data from GPU to Host
+    printf("sending...\n");
     gettimeofday(&meas[0], NULL);
     
-
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(d_idata, 1, memSize, peer_node, true);
         gettimeofday(&meas[i+1], NULL);
     }
-
+    printf("finished.\n");
 
     print_times(ALL, memSize);
 
@@ -183,15 +191,19 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     ib_allocate_memreg(&h_idata, memSize, 1, false);
     memset(h_idata, 1, memSize);
 
+    printf("preparing client...\n");
+    //ib_client_prepare(h_idata, 1, memSize, peer_node, false);
+    
+    printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
         ib_client_send(h_idata, 1, memSize, peer_node, false);
     }
 
     // copy data from GPU to Host
+    printf("sending...\n");
+
     gettimeofday(&meas[0], NULL);
-
-
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(h_idata, 1, memSize, peer_node, false);
@@ -199,6 +211,8 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     }
 
     print_times(ALL, memSize);
+
+    printf("finished. cleaning up...\n");
 
     // clean up memory
 
@@ -210,13 +224,18 @@ void testBandwidthClient(size_t memSize, char *peer_node)
 
     ib_allocate_memreg(&h_odata, memSize, 1, false);
 
+    printf("preparing server...\n");
+    //ib_server_prepare(h_odata, 1, memSize, false);
+
     // copy data from GPU to Host
 
+    printf("receving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
         ib_server_recv(h_odata, 1, memSize, false);
     }
 
+    printf("finished. cleaning up...\n");
     ib_free_memreg(h_odata, 1, false);
 }
 
