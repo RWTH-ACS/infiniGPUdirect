@@ -21,7 +21,8 @@
 #define MAX_LEN 32
 #define LENGTH 5
 
-#define MEMCOPY_ITERATIONS 50
+#define MEMCOPY_ITERATIONS 10
+#define WARMUP_ITERATIONS 3
 //#define DEFAULT_SIZE (32 * (1e6))      // 32 M
 #define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
@@ -119,7 +120,7 @@ void testBandwidthServer(size_t memSize, char *peer_node)
 
     // copy data from GPU to Host
 
-    for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
+    for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
         ib_server_recv(d_odata, 1, memSize, true);
     }
@@ -142,6 +143,10 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     // initialize the device memory
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
+    for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
+    {
+        ib_client_send(d_idata, 1, memSize, peer_node, true);
+    }
     // copy data from GPU to Host
     gettimeofday(&meas[0], NULL);
     
@@ -176,6 +181,11 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     ib_allocate_memreg(&h_idata, memSize, 1, false);
     memset(h_idata, 1, memSize);
 
+    for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
+    {
+        ib_client_send(h_idata, 1, memSize, peer_node, false);
+    }
+
     // copy data from GPU to Host
     gettimeofday(&meas[0], NULL);
 
@@ -200,7 +210,7 @@ void testBandwidthClient(size_t memSize, char *peer_node)
 
     // copy data from GPU to Host
 
-    for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
+    for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
         ib_server_recv(h_odata, 1, memSize, false);
     }
