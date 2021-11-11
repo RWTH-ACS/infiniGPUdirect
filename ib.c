@@ -106,7 +106,7 @@ static struct ibv_mr *mrs[32];
 void set_server_info(const char *hostname, int port) {
     struct hostent *hp = gethostbyname(hostname);
     if (hp == NULL) {
-        fprintf(stderr, "[ERROR] gethostbyname() failed. Abort!\n");
+        fprintf(stderr, "[ERROR] gethostbyname(\"%s\") failed. Abort!\n", hostname);
         exit(-1);
     }
 
@@ -596,7 +596,7 @@ void cleanup_send_list(void)
 }
 
 void
-ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id, bool gpumemreg)
+ib_pp_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
 {
     
     //memset(ib_pp_com_hndl.loc_com_buf.send_buf, 0x42, ib_pp_com_hndl.buf_size);

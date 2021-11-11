@@ -21,10 +21,12 @@
 #define MAX_LEN 32
 #define LENGTH 5
 
-#define MEMCOPY_ITERATIONS 100
-#define DEFAULT_SIZE (32 * (1e6))      // 32 M
+#define MEMCOPY_ITERATIONS 50
+//#define DEFAULT_SIZE (32 * (1e6))      // 32 M
+#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
 #define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
+struct timeval meas[MEMCOPY_ITERATIONS+1];
 
 // CPU cache flush
 #define FLUSH_SIZE (256 * 1024 * 1024)
@@ -52,11 +54,65 @@ int printInfo()
     return 0;
 }
 
-void testBandwidthServer(unsigned int memSize, char *peer_node)
+enum print_flags {
+    GB = 1,      // Bandwidth in GB/s
+    GIB = 2,     // Bandwidth in GiB/s
+    VAR = 4,     // Variance
+    INDVAL = 8,  // Each individual value
+    AVG = 16,    // Average time
+    ALL = 0xFF,  // All above
+};
+
+void print_times(enum print_flags flags, size_t memSize)
+{
+    double times[MEMCOPY_ITERATIONS];
+    double val;
+    double avg;
+    for (int i = 0; i < MEMCOPY_ITERATIONS; i++)
+    {
+        struct timeval *start = &meas[i];
+        struct timeval *end = &meas[i+1];
+        times[i] = (end->tv_sec - start->tv_sec) * 1e6;
+        times[i] = (times[i] + (end->tv_usec - start->tv_usec)) * 1e-6;
+        avg += times[i];
+        if (flags & INDVAL) {
+            printf("%d: %f\n", i, times[i]);
+        }
+    }
+    avg /= MEMCOPY_ITERATIONS;
+    if (flags & AVG) {
+        printf("Average Time: %f s\n", avg);
+    }
+    if (flags & VAR) {
+        val = 0;
+        for (int i = 0; i < MEMCOPY_ITERATIONS; i++)
+        {
+            val += (times[i]-avg)*(times[i]-avg);
+        }
+        val /= MEMCOPY_ITERATIONS;
+        printf("Variance %f s\n", val);
+    }
+    // calculate bandwidth in GB/s
+    if (flags & GB) {
+        val = (double)(memSize / (1000ULL*1000ULL)) / 1000.;
+        val = val / avg;
+        printf("Bandwidth: %f GB/s\n", val);
+    }
+    // calculate bandwidth in GiB/s
+    if (flags & GIB) {
+        val = (double)(memSize / (1024ULL*1024ULL)) / 1024.;
+        val = val / avg;
+        printf("Bandwidth %f GiB/s\n", val);
+    }
+}
+
+
+void testBandwidthServer(size_t memSize, char *peer_node)
 {
 
     // ...... Host to Device
-    float bandwidthInGBs = 0.0f;
+    double bandwidthInGBs = 0.0;
+    double bandwidthInGiBs = 0.0;
 
     void *d_odata;
     ib_allocate_memreg(&d_odata, memSize, 1, true);
@@ -87,38 +143,31 @@ void testBandwidthServer(unsigned int memSize, char *peer_node)
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
     // copy data from GPU to Host
-    gettimeofday(&start, NULL);
+    gettimeofday(&meas[0], NULL);
     
 
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(d_idata, 1, memSize, peer_node, true);
+        gettimeofday(&meas[i+1], NULL);
     }
 
 
-    gettimeofday(&end, NULL);
-
-    // calculate bandwidth in GB/s
-    double time_s = (end.tv_sec - start.tv_sec) * 1e6;
-    time_s = (time_s + (end.tv_usec - start.tv_usec)) * 1e-6;
-
-    bandwidthInGBs = (memSize * (float)MEMCOPY_ITERATIONS) / (double)1e9;
-    bandwidthInGBs = bandwidthInGBs / time_s;
+    print_times(ALL, memSize);
 
     // clean up memory
 
     ib_free_memreg(h_idata, 0, false);
     ib_free_memreg(d_idata, 1, true);
 
-    printf("Bandwidth:\n");
-    printf("Device to Host (Server): %f GB/s\n", bandwidthInGBs);
 }
 
-void testBandwidthClient(unsigned int memSize, char *peer_node)
+void testBandwidthClient(size_t memSize, char *peer_node)
 {
 
     //    Host to Device ............
-    float bandwidthInGBs = 0.0f;
+    double bandwidthInGBs = 0.0;
+    double bandwidthInGiBs = 0.0;
     void *h_idata;
 
     struct timeval start, end;
@@ -128,29 +177,20 @@ void testBandwidthClient(unsigned int memSize, char *peer_node)
     memset(h_idata, 1, memSize);
 
     // copy data from GPU to Host
-    gettimeofday(&start, NULL);
+    gettimeofday(&meas[0], NULL);
 
 
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         ib_client_send(h_idata, 1, memSize, peer_node, false);
+        gettimeofday(&meas[i+1], NULL);
     }
 
-    gettimeofday(&end, NULL);
-
-    // calculate bandwidth in GB/s
-    double time_s = (end.tv_sec - start.tv_sec) * 1e6;
-    time_s = (time_s + (end.tv_usec - start.tv_usec)) * 1e-6;
-
-    bandwidthInGBs = (memSize * (float)MEMCOPY_ITERATIONS) / (double)1e9;
-    bandwidthInGBs = bandwidthInGBs / time_s;
+    print_times(ALL, memSize);
 
     // clean up memory
 
     ib_free_memreg(h_idata, 1, false);
-
-    printf("Bandwidth:\n");
-    printf("Host to Device (Client): %f GB/s\n", bandwidthInGBs);
 
     //..... Device to Host
 
