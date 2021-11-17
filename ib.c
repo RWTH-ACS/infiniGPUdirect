@@ -106,7 +106,7 @@ static struct ibv_mr *mrs[32];
 void set_server_info(const char *hostname, int port) {
     struct hostent *hp = gethostbyname(hostname);
     if (hp == NULL) {
-        fprintf(stderr, "[ERROR] gethostbyname() failed. Abort!\n");
+        fprintf(stderr, "[ERROR] gethostbyname(\"%s\") failed. Abort!\n", hostname);
         exit(-1);
     }
 
@@ -596,7 +596,7 @@ void cleanup_send_list(void)
 }
 
 void
-ib_pp_prepare_run(void *memreg, uint32_t length, int mr_id, bool gpumemreg)
+ib_pp_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
 {
     
     //memset(ib_pp_com_hndl.loc_com_buf.send_buf, 0x42, ib_pp_com_hndl.buf_size);
@@ -976,10 +976,15 @@ void ib_final_cleanup(void)
 //    printf("Done!\n");
 }
 
-int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
+int ib_server_prepare(void *memptr, int mr_id, size_t length, bool togpumem)
 {
     ib_connect_server(memptr, mr_id);
+    ib_pp_prepare_run(memptr, length, mr_id, togpumem);
+    return 0;
+}
 
+int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
+{
 /*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
            ib_pp_com_hndl.loc_com_buf.qp_info.lid,
            ib_pp_com_hndl.loc_com_buf.qp_info.qpn,
@@ -992,20 +997,20 @@ int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
            ib_pp_com_hndl.rem_com_buf.qp_info.psn,
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
            ib_pp_com_hndl.rem_com_buf.qp_info.key); */
-    if(togpumem){
-    ib_pp_prepare_run(memptr, length, mr_id, true);
-    }
-    else{
-    ib_pp_prepare_run(memptr, length, mr_id, false);
-    }
+    ib_server_prepare(memptr, mr_id, length, togpumem);
     ib_pp_msg_recv(&ib_pp_com_hndl, length, mr_id);
-    
+    return 0;
+}
+
+int ib_client_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
+{
+    ib_connect_client(memptr, mr_id, peer_node);
+    ib_pp_prepare_run(memptr, length, mr_id, fromgpumem);
     return 0;
 }
 
 int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
-    ib_connect_client(memptr, mr_id, peer_node);
 
 /*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
            ib_pp_com_hndl.loc_com_buf.qp_info.lid,
@@ -1020,13 +1025,7 @@ int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool
            (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
            ib_pp_com_hndl.rem_com_buf.qp_info.key); */
 
-
-    if(fromgpumem){
-    ib_pp_prepare_run(memptr, length, mr_id, true);
-    }
-    else{
-    ib_pp_prepare_run(memptr, length, mr_id, false);
-    }
+    ib_client_prepare(memptr, mr_id, length, peer_node, fromgpumem);
     ib_pp_msg_send(&ib_pp_com_hndl);
 }
 
