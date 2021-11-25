@@ -23,17 +23,24 @@
  * and host
  */
 
+#include <stdint.h>
+#include <netdb.h>
+
 typedef struct oob {
+    int server_socket;
     int socket;
+    char peer_address[INET_ADDRSTRLEN];
 
 } oob_t;
 
-int oob_init_listener(oob_t *oob, const char* port);
+int oob_init_listener(oob_t *oob, uint16_t port);
 
-int oob_init_sender(oob_t *oob, const char* address);
+int oob_init_sender(oob_t *oob, const char* address, uint16_t port);
 
 int oob_send(oob_t *oob, void* buffer, size_t len);
 int oob_receive(oob_t *oob, void *buffer, size_t len);
 
 int oob_synchronize(oob_t *oob);
+
+int oob_close(oob_t *oob);
 
