@@ -21,11 +21,12 @@
 #define NAME_LENGTH 128
 #define MAX_LEN 32
 #define LENGTH 5
+#define TCP_PORT    (4211)
 
 #define MEMCOPY_ITERATIONS 25
 #define WARMUP_ITERATIONS 3
-//#define DEFAULT_SIZE (32 * (1e6))      // 32 M
-#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
+#define DEFAULT_SIZE (32 * (1e6))      // 32 M
+//#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
 #define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
 struct timeval meas[MEMCOPY_ITERATIONS+1];
@@ -123,6 +124,7 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     // copy data from GPU to Host
 
     printf("preparing server...\n");
+    ib_init_oob_listener(TCP_PORT);
     //ib_server_prepare(d_odata, 1, memSize, true);
 
     printf("receiving...\n");
@@ -192,6 +194,7 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     memset(h_idata, 1, memSize);
 
     printf("preparing client...\n");
+    ib_init_oob_sender(peer_node, TCP_PORT);
     //ib_client_prepare(h_idata, 1, memSize, peer_node, false);
     
     printf("warming up...\n");

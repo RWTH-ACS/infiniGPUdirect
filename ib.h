@@ -16,6 +16,10 @@ int ib_server_send_result(void *memptr, int mr_id, int length, char *peer_node);
 int ib_server_prepare(void *memptr, int mr_id, size_t length, bool togpumem);
 int ib_client_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem);
 
+#include <stdint.h>
+int ib_init_oob_listener(uint16_t port);
+int ib_init_oob_sender(const char* address, uint16_t port);
+
 #endif
 
 
