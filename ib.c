@@ -31,6 +31,8 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include "oob.h"
+
 #define PAGE_ROUND_UP(x) ( (((x)) + 0x1000-1)  & (~(0x1000-1)) )
 #define PAGE_SIZE       (0x1000)
 
@@ -50,7 +52,6 @@
 #define MAX_SEND_SGE    (1)
 #define MAX_RECV_SGE    (1)
 
-#define TCP_PORT    (4211)
 
 
 /*
@@ -103,162 +104,8 @@ static int device_id = 0;
 static struct ibv_mr *mrs[32];
 //static size_t mr_len = 0;
 
-void set_server_info(const char *hostname, int port) {
-    struct hostent *hp = gethostbyname(hostname);
-    if (hp == NULL) {
-        fprintf(stderr, "[ERROR] gethostbyname(\"%s\") failed. Abort!\n", hostname);
-        exit(-1);
-    }
 
-    /* determine server address */
-    memset(&ib_pp_server, '0', sizeof(ib_pp_server));
-    ib_pp_server.sin_family = AF_INET;
-    ib_pp_server.sin_port = htons(port);
-
-    char *server_ip = inet_ntoa(*(struct in_addr *)(hp->h_addr_list[0]));
-    int res = inet_pton(AF_INET, server_ip, &ib_pp_server.sin_addr);
-    if (res == 0) {
-        fprintf(stderr, "'%s' is not a valid server address\n", server_ip);
-    } else if (res < 0) {
-        fprintf(stderr, "An error occured while retrieving the migration server address\n");
-        perror("inet_pton");
-    }
-}
-
-/**
- * \brief Connects to a migration target via TCP/IP
- */
-int connect_to_server(void)
-{
-    char buf[INET_ADDRSTRLEN];
-    if (inet_ntop(AF_INET, (const void*)&ib_pp_server.sin_addr, buf, INET_ADDRSTRLEN) == NULL) {
-        perror("inet_ntop");
-        return -1;
-    }
-
-    if((com_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("socket");
-        return -1;
-    }
-
-    //fprintf(stderr, "[INFO] Trying to connect to migration server: %s\n", buf);
-    while (connect(com_sock, (struct sockaddr *)&ib_pp_server, sizeof(ib_pp_server)) < 0);
-    /*if (connect(com_sock, (struct sockaddr *)&ib_pp_server, sizeof(ib_pp_server)) < 0) {
-        perror("connect");
-        return -1;
-        }*/
-    //fprintf(stderr, "[INFO] Successfully connected to: %s\n", buf);
-    return 0;
-}
-
-
-/**
- * \brief Waits for a migration source to connect via TCP/IP
- *
- * \param listen_portno the port of the migration socket
- */
-void wait_for_client(uint16_t listen_portno)
-{   
-    int client_addr_len = 0;
-    struct sockaddr_in serv_addr;
-    struct sockaddr_in client_addr;
-
-    /* open migration socket */
-    //fprintf(stderr, "[INFO] Waiting for the client side...\n");
-    listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&serv_addr, '0', sizeof(serv_addr));
-
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(listen_portno);
-
-    int yes = 1;
-    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (void*) &yes, (socklen_t) sizeof(yes));
-
-    bind(listen_sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-
-    listen(listen_sock, 10);
-
-    client_addr_len = sizeof(struct sockaddr_in);
-    if ((com_sock = accept(listen_sock, (struct sockaddr *)&client_addr, (socklen_t*)&client_addr_len)) < 0) {
-        perror("accept");
-        exit(EXIT_FAILURE);
-    }
-    char buf[INET_ADDRSTRLEN];
-    if (inet_ntop(AF_INET, (const void*)&client_addr.sin_addr, buf, INET_ADDRSTRLEN) == NULL) {
-        perror("inet_ntop");
-        exit(EXIT_FAILURE);
-    }
-    //fprintf(stderr, "[INFO] Incoming from: %s\n", buf);
-}
-
-/**
- * \brief Receives data from the migration socket
- *
- * \param buffer the destination buffer
- * \param length the buffer size
- */
-int recv_data(void *buffer, size_t length)
-{
-    size_t bytes_received = 0;
-    while(bytes_received < length) {
-        bytes_received += recv(
-                com_sock,
-                (void*)((uint64_t)buffer+bytes_received),
-                length-bytes_received,
-                    0);
-    }
-
-    return bytes_received;
-}
-
-/**
- * \brief Sends data via the migration socket
- *
- * \param buffer the source buffer
- * \param length the buffer size
- */
-int send_data(void *buffer, size_t length)
-{
-    size_t bytes_sent = 0;
-    while(bytes_sent < length) {
-        bytes_sent += send(
-                com_sock,
-                (void*)((uint64_t)buffer+bytes_sent),
-                length-bytes_sent,
-                    0);
-    }
-
-    return bytes_sent;
-}
-
-static inline void
-close_sock(int sock)
-{
-    if (close(sock) < 0) {
-        fprintf(stderr,
-                "ERROR: Could not close the communication socket "
-            "- %d (%s). Abort!\n",
-            errno,
-            strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-}
-
-/**
- * \brief Closes the TCP connection
- */
-void close_comm_channel(void)
-{
-    if (listen_sock) {
-        close_sock(listen_sock);
-    }
-
-    close_sock(com_sock);
-}
-
-
-
+static oob_t oob;
 
 
 /*
@@ -844,6 +691,16 @@ int ib_init(int _device_id)
     return 0;
 }
 
+/* Both next functions should be solved outside this file and be removed from here */
+int ib_init_oob_listener(uint16_t port)
+{
+    return oob_init_listener(&oob, port);
+}
+int ib_init_oob_sender(const char* address, uint16_t port)
+{
+    return oob_init_sender(&oob, address, port);
+}
+
 int ib_connect_server(void *memreg, int mr_id)
 {
     ib_pp_com_hndl.loc_com_buf.recv_buf = memreg;
@@ -851,12 +708,9 @@ int ib_connect_server(void *memreg, int mr_id)
     ib_pp_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    wait_for_client(TCP_PORT);
+    oob_receive(&oob, &ib_pp_com_hndl.rem_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
+    oob_send(&oob, &ib_pp_com_hndl.loc_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
 
-    recv_data(&ib_pp_com_hndl.rem_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
-    send_data(&ib_pp_com_hndl.loc_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
-
-    close_comm_channel();
     ib_pp_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_pp_com_hndl.rem_com_buf.qp_info.addr;
 
     ib_pp_con_com_buf();
@@ -870,17 +724,9 @@ int ib_connect_client(void *memreg, int mr_id, char *server_address)
     ib_pp_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    set_server_info(server_address, TCP_PORT);
-    if (connect_to_server() < 0) {
-        fprintf(stderr, "[ERROR] Could not connect to the "
-                "destination. Abort!\n");
-        exit(-1);
-    }
+    oob_send(&oob, &ib_pp_com_hndl.loc_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
+    oob_receive(&oob, &ib_pp_com_hndl.rem_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
 
-    send_data(&ib_pp_com_hndl.loc_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
-    recv_data(&ib_pp_com_hndl.rem_com_buf.qp_info, sizeof(ib_pp_qp_info_t));
-
-    close_comm_channel();
     ib_pp_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_pp_com_hndl.rem_com_buf.qp_info.addr;
 
     ib_pp_con_com_buf();
