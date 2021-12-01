@@ -9,6 +9,10 @@ INC_FLAGS += -I$(CUDA_SRC)/include
 INC_FLAGS += -I$(CUDA_SRC)/samples/common/inc 
 
 CC_FLAGS += $(INC_FLAGS) -g
+ifdef GPU_TIMING
+CC_FLAGS += -DGPU_TIMING=$(GPU_TIMING)
+endif
+
 LIB_FLAGS += -L$(CUDA_SRC)/lib64
 LD_FLAGS = $(LIB_FLAGS) -libverbs -lcudart -lm
 

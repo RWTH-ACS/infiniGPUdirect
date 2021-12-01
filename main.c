@@ -31,8 +31,15 @@
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
 #define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
 
+//#define GPU_TIMING 
 #define TIME_INCL_PREPARE 0
+
+#ifdef GPU_TIMING
+static cudaEvent_t start, stop;
+#else
 static struct timeval startt;
+#endif
+
 static double times[MEMCOPY_ITERATIONS];
 
 // CPU cache flush
@@ -43,11 +50,18 @@ int printInfo()
 {
     int nDevices;
 
-    cudaGetDeviceCount(&nDevices);
+    if(cudaGetDeviceCount(&nDevices) != cudaSuccess)
+    {
+        fprintf(stderr, "ERROR: Failed to get device count\n");
+    }
 
     for (int i = 0; i < nDevices; i++) {
         struct cudaDeviceProp prop;
-        cudaGetDeviceProperties(&prop, i);
+
+        if(cudaGetDeviceProperties(&prop, i) != cudaSuccess){
+            fprintf(stderr, "Failed to get device properties\n");
+        }
+
         printf("Device Number: %d\n", i);
         printf("  Device name: %s\n", prop.name);
         printf("  Memory Clock Rate (KHz): %d\n",
@@ -72,25 +86,43 @@ enum print_flags {
 
 static inline void timer_start(void)
 {
+#ifdef GPU_TIMING
+    if(cudaEventRecord(start, 0) != cudaSuccess){
+        fprintf(stderr, "Failed to start gpu timer\n");
+    }
+#else
     gettimeofday(&startt, NULL);
+#endif
 }
 
 void timer_stop(void)
 {
     static int i = 0;
+
+#ifdef GPU_TIMING
+    float elapsedTimeInMs = 0.0f;
+    if((cudaEventRecord(stop,0) || cudaDeviceSynchronize() || cudaEventElapsedTime(&elapsedTimeInMs, start, stop)) != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to stop gpu timer\n");
+    }
+    times[i] = elapsedTimeInMs / 1e3;
+#else
     struct timeval stopt;
     gettimeofday(&stopt, NULL);
     times[i] = (stopt.tv_sec - startt.tv_sec) * 1e6;
     times[i] = (times[i] + (stopt.tv_usec - startt.tv_usec)) * 1e-6;
+#endif
     if (i < MEMCOPY_ITERATIONS) {
         i++;
     }
 }
 
-void print_times(enum print_flags flags, size_t memSize)
+void print_times(enum print_flags flags, size_t memSize, char * type)
 {
     double val;
     double avg;
+    printf("-----------------------------------------------\n");
+    printf("%s transfer:\n", type);
     for (int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
         avg += times[i];
@@ -98,6 +130,7 @@ void print_times(enum print_flags flags, size_t memSize)
             printf("%d: %f\n", i, times[i]);
         }
     }
+    printf("-----------------------------------------------\n");
     avg /= MEMCOPY_ITERATIONS;
     if (flags & AVG) {
         printf("Average Time: %f s\n", avg);
@@ -124,6 +157,8 @@ void print_times(enum print_flags flags, size_t memSize)
         val = val / avg;
         printf("Bandwidth %f GiB/s\n", val);
     }
+    printf("-----------------------------------------------\n");
+
 }
 
 
@@ -190,7 +225,7 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     }
     printf("finished.\n");
 
-    print_times(ALL, memSize);
+    print_times(ALL, memSize, "Device to Host");
 
     // clean up memory
 
@@ -236,7 +271,7 @@ void testBandwidthClient(size_t memSize, char *peer_node)
         timer_stop();
     }
 
-    print_times(ALL, memSize);
+    print_times(ALL, memSize, "Host To Device");
 
     printf("finished. cleaning up...\n");
 
@@ -301,6 +336,14 @@ int main(int argc, char **argv)
 
     srand48(getpid() * time(NULL));
 
+#ifdef GPU_TIMING
+    if((cudaEventCreate(&start) || cudaEventCreate(&stop)) != cudaSuccess)
+    {
+        fprintf(stderr, "Failed to create start and/or stop event\n"); 
+        exit(1);   
+    }
+#endif
+
     if (server == -1) {
         fprintf(stderr, "ERROR: You must either specify the "
                 "-s or -c argument. Abort!\n");
@@ -337,6 +380,10 @@ int main(int argc, char **argv)
 
         flush_buf = (char *)malloc(FLUSH_SIZE);
 
+#ifdef GPU_TIMING
+        printf("using GPU timer...\n");
+#endif
+
         testBandwidthServer(DEFAULT_SIZE, peer_node);
 
         printf("-----------------------------------------------\n");
@@ -353,6 +400,10 @@ int main(int argc, char **argv)
 
         printf("-----------------------------------------------\n");
 
+#ifdef GPU_TIMING
+        printf("using GPU timer...\n");
+#endif
+
         testBandwidthClient(DEFAULT_SIZE, peer_node);
 
         printf("-----------------------------------------------\n");
@@ -360,6 +411,12 @@ int main(int argc, char **argv)
         free(flush_buf);    
 
     }
+
+#ifdef GPU_TIMING
+    if((cudaEventDestroy(start) || cudaEventDestroy(stop)) != cudaSuccess){
+        fprintf(stderr, "Failed to destroy gpu stimer\n");
+    }
+#endif
 
     ib_cleanup();
     ib_final_cleanup();
