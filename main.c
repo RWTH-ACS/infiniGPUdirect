@@ -1,4 +1,5 @@
 #include "ib.h"
+#include <bits/types/struct_timeval.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -25,11 +26,14 @@
 
 #define MEMCOPY_ITERATIONS 25
 #define WARMUP_ITERATIONS 3
-#define DEFAULT_SIZE (32 * (1e6))      // 32 M
+#define DEFAULT_SIZE (128 * (1e6))      // 32 M
 //#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
 #define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
-struct timeval meas[MEMCOPY_ITERATIONS+1];
+
+#define TIME_INCL_PREPARE 0
+static struct timeval startt;
+static double times[MEMCOPY_ITERATIONS];
 
 // CPU cache flush
 #define FLUSH_SIZE (256 * 1024 * 1024)
@@ -66,17 +70,29 @@ enum print_flags {
     ALL = 0xFF,  // All above
 };
 
+static inline void timer_start(void)
+{
+    gettimeofday(&startt, NULL);
+}
+
+void timer_stop(void)
+{
+    static int i = 0;
+    struct timeval stopt;
+    gettimeofday(&stopt, NULL);
+    times[i] = (stopt.tv_sec - startt.tv_sec) * 1e6;
+    times[i] = (times[i] + (stopt.tv_usec - startt.tv_usec)) * 1e-6;
+    if (i < MEMCOPY_ITERATIONS) {
+        i++;
+    }
+}
+
 void print_times(enum print_flags flags, size_t memSize)
 {
-    double times[MEMCOPY_ITERATIONS];
     double val;
     double avg;
     for (int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
-        struct timeval *start = &meas[i];
-        struct timeval *end = &meas[i+1];
-        times[i] = (end->tv_sec - start->tv_sec) * 1e6;
-        times[i] = (times[i] + (end->tv_usec - start->tv_usec)) * 1e-6;
         avg += times[i];
         if (flags & INDVAL) {
             printf("%d: %f\n", i, times[i]);
@@ -130,7 +146,8 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     printf("receiving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
-        ib_server_recv(d_odata, 1, memSize, true);
+        ib_server_prepare(d_odata, 1, memSize, true);
+        ib_msg_recv(memSize, 1);
     }
     printf("finished. cleaning up...\n");
     ib_free_memreg(d_odata, 1, true);
@@ -157,16 +174,19 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
-        ib_client_send(d_idata, 1, memSize, peer_node, true);
+        ib_client_prepare(d_idata, 1, memSize, peer_node, true);
+        ib_msg_send();
     }
     // copy data from GPU to Host
     printf("sending...\n");
-    gettimeofday(&meas[0], NULL);
     
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
-        ib_client_send(d_idata, 1, memSize, peer_node, true);
-        gettimeofday(&meas[i+1], NULL);
+        if (TIME_INCL_PREPARE) timer_start();
+        ib_client_prepare(d_idata, 1, memSize, peer_node, true);
+        if (!TIME_INCL_PREPARE) timer_start();
+        ib_msg_send();
+        timer_stop();
     }
     printf("finished.\n");
 
@@ -200,17 +220,20 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
-        ib_client_send(h_idata, 1, memSize, peer_node, false);
+        ib_client_prepare(h_idata, 1, memSize, peer_node, false);
+        ib_msg_send();
     }
 
     // copy data from GPU to Host
     printf("sending...\n");
 
-    gettimeofday(&meas[0], NULL);
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
-        ib_client_send(h_idata, 1, memSize, peer_node, false);
-        gettimeofday(&meas[i+1], NULL);
+        if (TIME_INCL_PREPARE) timer_start();
+        ib_client_prepare(h_idata, 1, memSize, peer_node, false);
+        if (!TIME_INCL_PREPARE) timer_start();
+        ib_msg_send();
+        timer_stop();
     }
 
     print_times(ALL, memSize);
@@ -235,7 +258,8 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     printf("receving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
-        ib_server_recv(h_odata, 1, memSize, false);
+        ib_server_prepare(h_odata, 1, memSize, false);
+        ib_msg_recv(memSize, 1);
     }
 
     printf("finished. cleaning up...\n");

@@ -484,8 +484,7 @@ ib_pp_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
 
 
 /* send data */
-void
-ib_pp_msg_send(ib_pp_com_hndl_t *com_hndl)
+void ib_msg_send()
 {
 
     /* we have to call ibv_post_send() as long as 'send_list' contains elements  */
@@ -494,7 +493,7 @@ ib_pp_msg_send(ib_pp_com_hndl_t *com_hndl)
     do {
         /* send data */
         remaining_send_wr = NULL;
-        if (ibv_post_send(com_hndl->qp, com_hndl->send_wr, &remaining_send_wr) && (errno != ENOMEM)) {
+        if (ibv_post_send(ib_pp_com_hndl.qp, ib_pp_com_hndl.send_wr, &remaining_send_wr) && (errno != ENOMEM)) {
             fprintf(stderr,
                 "[ERROR] Could not post send - %d (%s). Abort!\n",
                 errno,
@@ -505,7 +504,7 @@ ib_pp_msg_send(ib_pp_com_hndl_t *com_hndl)
         /* wait for send WRs if CQ is full */
         int res = 0;
         do {
-            if ((res = ibv_poll_cq(com_hndl->cq, 1, &wc)) < 0) {
+            if ((res = ibv_poll_cq(ib_pp_com_hndl.cq, 1, &wc)) < 0) {
                 fprintf(stderr,
                     "[ERROR] Could not poll on CQ - %d (%s). Abort!\n",
                     errno,
@@ -523,18 +522,17 @@ ib_pp_msg_send(ib_pp_com_hndl_t *com_hndl)
 
         }
 
-        com_hndl->send_wr = remaining_send_wr;
+        ib_pp_com_hndl.send_wr = remaining_send_wr;
     } while (remaining_send_wr);
 
     cleanup_send_list();
 }
 
 /* recv data */
-void
-ib_pp_msg_recv(ib_pp_com_hndl_t *com_hndl, uint32_t length, int mr_id)
+void ib_msg_recv(uint32_t length, int mr_id)
 {
     /* request notification on the event channel */
-	if (ibv_req_notify_cq(com_hndl->cq, 1) < 0) {
+	if (ibv_req_notify_cq(ib_pp_com_hndl.cq, 1) < 0) {
 		fprintf(stderr,
 			"[ERROR] Could request notify for completion queue "
 			"- %d (%s). Abort!\n",
@@ -561,7 +559,7 @@ ib_pp_msg_recv(ib_pp_com_hndl_t *com_hndl, uint32_t length, int mr_id)
 	recv_wr.sg_list    = &sg;
 	recv_wr.num_sge    = 1;
 
-	if (ibv_post_recv(com_hndl->qp, &recv_wr, &bad_wr) < 0) {
+	if (ibv_post_recv(ib_pp_com_hndl.qp, &recv_wr, &bad_wr) < 0) {
 	        fprintf(stderr,
 			"[ERROR] Could post recv - %d (%s). Abort!\n",
 			errno,
@@ -570,7 +568,7 @@ ib_pp_msg_recv(ib_pp_com_hndl_t *com_hndl, uint32_t length, int mr_id)
 	}
 
 	/* wait for requested event */
-	if (ibv_get_cq_event(com_hndl->comp_chan, &ev_cq, &ev_ctx) < 0) {
+	if (ibv_get_cq_event(ib_pp_com_hndl.comp_chan, &ev_cq, &ev_ctx) < 0) {
 	        fprintf(stderr,
 			"[ERROR] Could get event from completion channel "
 			"- %d (%s). Abort!\n",
@@ -580,7 +578,7 @@ ib_pp_msg_recv(ib_pp_com_hndl_t *com_hndl, uint32_t length, int mr_id)
 	}
 
 	/* acknowledge the event */
-	ibv_ack_cq_events(com_hndl->cq, 1);
+	ibv_ack_cq_events(ib_pp_com_hndl.cq, 1);
 
 }
 
@@ -829,50 +827,9 @@ int ib_server_prepare(void *memptr, int mr_id, size_t length, bool togpumem)
     return 0;
 }
 
-int ib_server_recv(void *memptr, int mr_id, size_t length, bool togpumem)
-{
-/*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
-           ib_pp_com_hndl.loc_com_buf.qp_info.lid,
-           ib_pp_com_hndl.loc_com_buf.qp_info.qpn,
-           ib_pp_com_hndl.loc_com_buf.qp_info.psn,
-           (void*)ib_pp_com_hndl.loc_com_buf.qp_info.addr,
-           ib_pp_com_hndl.loc_com_buf.qp_info.key);
-    printf("remote address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
-           ib_pp_com_hndl.rem_com_buf.qp_info.lid,
-           ib_pp_com_hndl.rem_com_buf.qp_info.qpn,
-           ib_pp_com_hndl.rem_com_buf.qp_info.psn,
-           (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
-           ib_pp_com_hndl.rem_com_buf.qp_info.key); */
-    ib_server_prepare(memptr, mr_id, length, togpumem);
-    ib_pp_msg_recv(&ib_pp_com_hndl, length, mr_id);
-    return 0;
-}
-
 int ib_client_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
     ib_connect_client(memptr, mr_id, peer_node);
     ib_pp_prepare_run(memptr, length, mr_id, fromgpumem);
     return 0;
 }
-
-int ib_client_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
-{
-
-/*    printf("local address :  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
-           ib_pp_com_hndl.loc_com_buf.qp_info.lid,
-           ib_pp_com_hndl.loc_com_buf.qp_info.qpn,
-           ib_pp_com_hndl.loc_com_buf.qp_info.psn,
-           (void*)ib_pp_com_hndl.loc_com_buf.qp_info.addr,
-           ib_pp_com_hndl.loc_com_buf.qp_info.key);
-    printf("remote address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, ADDR %p, KEY 0x%08x\n",
-           ib_pp_com_hndl.rem_com_buf.qp_info.lid,
-           ib_pp_com_hndl.rem_com_buf.qp_info.qpn,
-           ib_pp_com_hndl.rem_com_buf.qp_info.psn,
-           (void*)ib_pp_com_hndl.rem_com_buf.qp_info.addr,
-           ib_pp_com_hndl.rem_com_buf.qp_info.key); */
-
-    ib_client_prepare(memptr, mr_id, length, peer_node, fromgpumem);
-    ib_pp_msg_send(&ib_pp_com_hndl);
-}
-
-
