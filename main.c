@@ -25,7 +25,7 @@
 
 #define MEMCOPY_ITERATIONS 25
 #define WARMUP_ITERATIONS 3
-#define DEFAULT_SIZE (32 * (1e6))      // 32 M
+#define DEFAULT_SIZE (256 * (1e6))      // 32 M
 //#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 #define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
 #define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
