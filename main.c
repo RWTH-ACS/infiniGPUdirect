@@ -130,7 +130,8 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     printf("receiving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
-        ib_server_recv(d_odata, 1, memSize, true);
+        ib_server_prepare(d_odata, 1, memSize, true);
+        ib_msg_recv(memSize, 1);
     }
     printf("finished. cleaning up...\n");
     ib_free_memreg(d_odata, 1, true);
@@ -157,7 +158,8 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
-        ib_client_send(d_idata, 1, memSize, peer_node, true);
+        ib_client_prepare(d_idata, 1, memSize, peer_node, true);
+        ib_msg_send();
     }
     // copy data from GPU to Host
     printf("sending...\n");
@@ -165,7 +167,8 @@ void testBandwidthServer(size_t memSize, char *peer_node)
     
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
-        ib_client_send(d_idata, 1, memSize, peer_node, true);
+        ib_client_prepare(d_idata, 1, memSize, peer_node, true);
+        ib_msg_send();
         gettimeofday(&meas[i+1], NULL);
     }
     printf("finished.\n");
@@ -200,7 +203,8 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     printf("warming up...\n");
     for (unsigned int i = 0; i < WARMUP_ITERATIONS; i++)
     {
-        ib_client_send(h_idata, 1, memSize, peer_node, false);
+        ib_client_prepare(h_idata, 1, memSize, peer_node, false);
+        ib_msg_send();
     }
 
     // copy data from GPU to Host
@@ -209,7 +213,8 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     gettimeofday(&meas[0], NULL);
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS; i++)
     {
-        ib_client_send(h_idata, 1, memSize, peer_node, false);
+        ib_client_prepare(h_idata, 1, memSize, peer_node, false);
+        ib_msg_send();
         gettimeofday(&meas[i+1], NULL);
     }
 
@@ -235,7 +240,8 @@ void testBandwidthClient(size_t memSize, char *peer_node)
     printf("receving...\n");
     for (unsigned int i = 0; i < MEMCOPY_ITERATIONS+WARMUP_ITERATIONS; i++)
     {
-        ib_server_recv(h_odata, 1, memSize, false);
+        ib_server_prepare(h_odata, 1, memSize, false);
+        ib_msg_recv(memSize, 1);
     }
 
     printf("finished. cleaning up...\n");
