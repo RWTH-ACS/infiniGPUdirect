@@ -337,7 +337,7 @@ int main(int argc, char **argv)
     srand48(getpid() * time(NULL));
 
 #ifdef GPU_TIMING
-    if((cudaEventCreate(&start) || cudaEventCreate(&stop)) != cudaSuccess)
+    if((cudaSetDevice(gpu_id) || cudaEventCreate(&start) || cudaEventCreate(&stop)) != cudaSuccess)
     {
         fprintf(stderr, "Failed to create start and/or stop event\n"); 
         exit(1);   
