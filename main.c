@@ -37,6 +37,8 @@ static struct timeval startt;
 #endif
 
 static int no_p2p = 0;
+static int extended_output = 0;
+static int short_output = 0;
 static int tcp_port = DEFAULT_TCP_PORT;
 static int memcopy_iterations = DEFAULT_MEMCOPY_ITERATIONS;
 static int warmup_iterations = DEFAULT_WARMUP_ITERATIONS;
@@ -48,6 +50,7 @@ char *flush_buf;
 
 int printInfo()
 {
+    printf("-----------------------------------------------\n");
     int nDevices;
 
     if(cudaGetDeviceCount(&nDevices) != cudaSuccess)
@@ -71,6 +74,7 @@ int printInfo()
         printf("  Peak Memory Bandwidth (GB/s): %f\n\n",
            2.0*prop.memoryClockRate*(prop.memoryBusWidth/8)/1.0e6);
      }
+     printf("-----------------------------------------------\n");
 
     return 0;
 }
@@ -126,11 +130,11 @@ void print_times(enum print_flags flags, size_t memSize, char * type, double* ti
     for (int i = 0; i < memcopy_iterations; i++)
     {
         avg += times[i];
-        if (flags & INDVAL) {
+        if (!short_output && flags && INDVAL) {
             printf("%d: %f\n", i, times[i]);
         }
     }
-    printf("-----------------------------------------------\n");
+    if(!short_output) printf("-----------------------------------------------\n");
     avg /= memcopy_iterations;
     if (flags & AVG) {
         printf("Average Time: %f s\n", avg);
@@ -175,11 +179,11 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
 
     // copy data from GPU to Host
 
-    printf("preparing server...\n");
+    if(extended_output) printf("preparing server...\n");
     ib_init_oob_listener(tcp_port);
     //ib_server_prepare(d_odata, 1, memSize, true);
 
-    printf("receiving...\n");
+    if(extended_output) printf("receiving...\n");
 
     if (no_p2p)
     {
@@ -201,7 +205,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         }
     }
 
-    printf("finished. cleaning up...\n");
+    if(extended_output) printf("finished. cleaning up...\n");
     ib_free_memreg(d_odata, 1, true);
 
     //........Device to Host
@@ -220,10 +224,10 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     // initialize the device memory
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
-    printf("preparing client...\n");
+    if(extended_output) printf("preparing client...\n");
     //ib_client_prepare(d_idata, 1, memSize, peer_node, true);
 
-    printf("warming up...\n");
+    if(extended_output) printf("warming up...\n");
 
     if (no_p2p)
     {
@@ -234,7 +238,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
             ib_msg_send();
         }
         // copy data from GPU to Host
-        printf("sending...\n");
+        if(extended_output) printf("sending...\n");
 
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
@@ -256,7 +260,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
             ib_msg_send();
         }
         // copy data from GPU to Host
-        printf("sending...\n");
+        if(extended_output) printf("sending...\n");
 
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
@@ -269,7 +273,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
             timer_stop(times);
         }
     }
-    printf("finished.\n");
+    if(extended_output) printf("finished.\n");
 
     print_times(ALL, memSize, "Device to Host", times);
 
@@ -293,11 +297,11 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     ib_allocate_memreg(&h_idata, memSize, 1, false);
     memset(h_idata, 1, memSize);
 
-    printf("preparing client...\n");
+    if(extended_output) printf("preparing client...\n");
     ib_init_oob_sender(peer_node, tcp_port);
     //ib_client_prepare(h_idata, 1, memSize, peer_node, false);
     
-    printf("warming up...\n");
+    if(extended_output) printf("warming up...\n");
     for (unsigned int i = 0; i < warmup_iterations; i++)
     {
         ib_client_prepare(h_idata, 1, memSize, peer_node, false);
@@ -305,7 +309,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     }
 
     // copy data from GPU to Host
-    printf("sending...\n");
+    if(extended_output) printf("sending...\n");
 
     for (unsigned int i = 0; i < memcopy_iterations; i++)
     {
@@ -318,7 +322,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     print_times(ALL, memSize, "Host To Device", times);
 
-    printf("finished. cleaning up...\n");
+    if(extended_output) printf("finished. cleaning up...\n");
 
     // clean up memory
 
@@ -330,20 +334,35 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     ib_allocate_memreg(&h_odata, memSize, 1, false);
 
-    printf("preparing server...\n");
+    if(extended_output) printf("preparing server...\n");
     //ib_server_prepare(h_odata, 1, memSize, false);
 
     // copy data from GPU to Host
 
-    printf("receving...\n");
+    if(extended_output) printf("receving...\n");
     for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
     {
         ib_server_prepare(h_odata, 1, memSize, false);
         ib_msg_recv(memSize, 1);
     }
 
-    printf("finished. cleaning up...\n");
+    if(extended_output) printf("finished. cleaning up...\n");
     ib_free_memreg(h_odata, 1, false);
+}
+
+void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, int mem_size, int iterations, int warmup, int tcp, int nop2p){
+    printf("-----------------------------------------------\n");
+    server ? printf("Peer (Client): %s\n", peer_node) : printf("Peer (Server): %s\n", peer_node);
+    printf("InfiniBand device: %d\n", ib_device_id);
+    printf("TCP port: %d\n", tcp);
+    if(server) printf("GPU: %d\n", gpu_id);
+    printf("Memory size: %d\n", mem_size);
+    printf("Iterations: %d\n", iterations);
+    printf("Warmup iterations: %d\n", warmup);
+    if(nop2p) printf("Using NO peer to peer\n");
+#ifdef GPU_TIMING
+    printf("Using GPU timer\n");
+#endif
 }
 
 int main(int argc, char **argv)
@@ -361,6 +380,8 @@ int main(int argc, char **argv)
         static struct option long_options[] =
         {
           {"nop2p", no_argument,  &no_p2p, 1},
+          {"extended", no_argument,  &extended_output, 1},
+          {"short", no_argument,  &short_output, 1},
           {0, 0, 0, 0}
         };
 
@@ -401,8 +422,13 @@ int main(int argc, char **argv)
             memcopy_iterations = atoi(optarg);
             break;
         case 'h':
-            printf("usage ./%s "
-                   "-s/-c -p <peer_node>\n -d   IB device ID (default 0)\n -g   GPU ID (default 0)\n --nop2p    disable peer to peer", argv[0]);
+            printf("Command line parameters:\n"
+                   " -s/-c         server/client (required)\n -p            <peer node> (required)\n -d            <IB device ID> (default 0)\n -g            <GPU ID> (default 0)\n"
+                    " -m            <memory size> (default: %d)\n -i            <memcopy iterations> (default: %d)\n "
+                    "-w            <warmup iterations> (default: %d)\n -t            <TCP port> (default: %d)\n"
+                    " --nop2p       disable peer to peer (flag)\n --extended    extended terminal output (flag)\n --short       short terminal output (flag)\n",
+                     DEFAULT_SIZE, DEFAULT_MEMCOPY_ITERATIONS, DEFAULT_WARMUP_ITERATIONS, DEFAULT_TCP_PORT);
+            exit(0);
             break;
         case '?': 
             printf("unknown option: %c\n", optopt);
@@ -410,9 +436,9 @@ int main(int argc, char **argv)
         }
     }
 
-    if(no_p2p)
+    if(extended_output)
     {
-        printf("option no p2p has been set\n");
+        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p);
     }
 
     double times[memcopy_iterations];
@@ -443,31 +469,21 @@ int main(int argc, char **argv)
     void * h_odata, * h_idata;
     void * d_idata;
 
-    printf("-----------------------------------------------\n");
 
     ib_init(device_id_param);
     if (server) {
 
-        printf("-----------------------------------------------\n");
+        if(extended_output){
         printInfo();
-        printf("-----------------------------------------------\n");
-
+        }
 
         cudaSetDevice(gpu_id);
 
-        printf("Using GPU: %d\n", gpu_id);
-
-        printf("-----------------------------------------------\n");
 
         flush_buf = (char *)malloc(FLUSH_SIZE);
 
-#ifdef GPU_TIMING
-        printf("using GPU timer...\n");
-#endif
 
         testBandwidthServer(mem_size, peer_node, times);
-
-        printf("-----------------------------------------------\n");
 
         free(flush_buf);    
 
@@ -479,15 +495,8 @@ int main(int argc, char **argv)
 
         flush_buf = (char *)malloc(FLUSH_SIZE);
 
-        printf("-----------------------------------------------\n");
-
-#ifdef GPU_TIMING
-        printf("using GPU timer...\n");
-#endif
-
         testBandwidthClient(mem_size, peer_node, times);
 
-        printf("-----------------------------------------------\n");
 
         free(flush_buf);    
 
