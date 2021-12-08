@@ -18,21 +18,16 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-
-
 #define NAME_LENGTH 128
-#define MAX_LEN 32
-#define LENGTH 5
 #define TCP_PORT    (4211)
 
 #define MEMCOPY_ITERATIONS 25
 #define WARMUP_ITERATIONS 3
 #define DEFAULT_SIZE (128 * (1e6))      // 32 M
-//#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
-#define DEFAULT_INCREMENT (4 * (1e6))  // 4 M
-#define CACHE_CLEAR_SIZE (16 * (1e6))  // 16 M
 
+//#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 //#define GPU_TIMING 
+
 #define TIME_INCL_PREPARE 0
 
 #ifdef GPU_TIMING
@@ -424,8 +419,6 @@ int main(int argc, char **argv)
                 "argument. Abort!\n");
         exit(-1);
     }
-
-    size_t size = LENGTH * sizeof(int);
 
     void *memptr0, *memptr1, *memptr2; 
     void *gpumemptr0, *gpumemptr1, *gpumemptr2;
