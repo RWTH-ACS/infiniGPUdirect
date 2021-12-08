@@ -12,6 +12,7 @@
 #include <cuda_runtime.h>
 #include <sys/time.h>
 #include <math.h>
+#include <getopt.h>
 
 #include <infiniband/verbs.h>
 #include <arpa/inet.h>
@@ -41,6 +42,8 @@ static struct timeval startt;
 #endif
 
 static double times[MEMCOPY_ITERATIONS];
+
+static int no_p2p = 0;
 
 // CPU cache flush
 #define FLUSH_SIZE (256 * 1024 * 1024)
@@ -309,7 +312,23 @@ int main(int argc, char **argv)
     int device_id_param = 0;
     int gpu_id = 0;
 
-    while ((arg = getopt(argc, argv, "hscd:g:p:")) != -1) {
+
+    while (1)
+    {
+        static struct option long_options[] =
+        {
+          {"nop2p", no_argument,  &no_p2p, 1},
+          {0, 0, 0, 0}
+        };
+
+        int option_index = 0;
+
+        arg = getopt_long(argc, argv, "hscd:g:p:", long_options, &option_index);
+
+        if (arg == -1){
+            break;
+        } 
+
         switch (arg) {
         case 's':
             server = 1;
@@ -328,10 +347,17 @@ int main(int argc, char **argv)
             break;
         case 'h':
             printf("usage ./%s "
-                   "-s/-c -p <peer_node>\n -d   IB device ID (default 0)\n -g   GPU ID (default 0)\n", argv[0]);
+                   "-s/-c -p <peer_node>\n -d   IB device ID (default 0)\n -g   GPU ID (default 0)\n --nop2p    disable peer to peer", argv[0]);
             break;
-
+        case '?': 
+            printf("unknown option: %c\n", optopt);
+            break;
         }
+    }
+
+    if(no_p2p)
+    {
+        printf("option no p2p has been set\n");
     }
 
     srand48(getpid() * time(NULL));
