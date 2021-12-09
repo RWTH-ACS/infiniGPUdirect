@@ -30,6 +30,7 @@ static int no_p2p = 0;
 static int extended_output = 0;
 static int short_output = 0;
 static int time_incl_prepare = 0;
+static int sysmem_only = 0;
 
 static int tcp_port = DEFAULT_TCP_PORT;
 static int memcopy_iterations = DEFAULT_MEMCOPY_ITERATIONS;
@@ -181,8 +182,19 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
 
     if(extended_output) printf("receiving...\n");
 
-    if (no_p2p)
+    if(sysmem_only)
     {
+        ib_allocate_memreg(&h_odata, memSize, 0, false);
+        for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
+        {
+            ib_server_prepare(h_odata, 0, memSize, false);
+            ib_msg_recv(memSize, 0);
+        }
+        ib_free_memreg(h_odata, 0, false);
+    }
+    else if(no_p2p)
+    {
+        //does not work as intended?
         ib_allocate_memreg(&h_odata, memSize, 0, false);
         for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
         {
@@ -225,10 +237,31 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
 
     if(extended_output) printf("warming up...\n");
 
-    if (no_p2p)
+    if(sysmem_only)
     {
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {   
+            ib_client_prepare(h_idata, 0, memSize, peer_node, false);
+            ib_msg_send();
+        }
+        // copy data from GPU to Host
+        if(extended_output) printf("sending...\n");
+
+        for (unsigned int i = 0; i < memcopy_iterations; i++)
+        {
+            if (time_incl_prepare)
+                timer_start();
+            ib_client_prepare(h_idata, 0, memSize, peer_node, false);
+            if (!time_incl_prepare)
+                timer_start();
+            ib_msg_send();
+            timer_stop(times);
+        }
+    }
+    else if(no_p2p)
+    {
+        for (unsigned int i = 0; i < warmup_iterations; i++)
+        {
             ib_client_prepare(h_idata, 0, memSize, peer_node, false);
             cudaMemcpy(h_idata, d_idata, memSize, cudaMemcpyDeviceToHost);
             ib_msg_send();
@@ -346,7 +379,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     ib_free_memreg(h_odata, 1, false);
 }
 
-void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, int mem_size, int iterations, int warmup, int tcp, int nop2p, int inclprep){
+void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, int mem_size, int iterations, int warmup, int tcp, int nop2p, int inclprep, int sysmem){
     printf("-----------------------------------------------\n");
     server ? printf("Peer (Client): %s\n", peer_node) : printf("Peer (Server): %s\n", peer_node);
     printf("InfiniBand device: %d\n", ib_device_id);
@@ -357,6 +390,7 @@ void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, 
     printf("Warmup iterations: %d\n", warmup);
     if(nop2p) printf("Using NO peer to peer\n");
     if(inclprep) printf("Including preparation time\n");
+    if(sysmem) printf("Data transfer only between system memory\n");
 #ifdef GPU_TIMING
     printf("Using GPU timer\n");
 #endif
@@ -381,6 +415,7 @@ int main(int argc, char **argv)
           {"extended", no_argument,  &extended_output, 1},
           {"short", no_argument,  &short_output, 1},
           {"inclprep", no_argument,  &time_incl_prepare, 1},
+          {"sysmem", no_argument,  &sysmem_only, 1},
           {0, 0, 0, 0}
         };
 
@@ -426,7 +461,7 @@ int main(int argc, char **argv)
                     " -m            <memory size> (default: %d)\n -i            <memcopy iterations> (default: %d)\n "
                     "-w            <warmup iterations> (default: %d)\n -t            <TCP port> (default: %d)\n"
                     " --nop2p       disable peer to peer (flag)\n --extended    extended terminal output (flag)\n --short       short terminal output (flag)\n"
-                    "--inclprep    include preparation time (flag)",
+                    "--inclprep    include preparation time (flag)\n --sysmem      data transfer only between system memory (flag)\n",
                      DEFAULT_SIZE, DEFAULT_MEMCOPY_ITERATIONS, DEFAULT_WARMUP_ITERATIONS, DEFAULT_TCP_PORT);
             exit(0);
             break;
@@ -438,7 +473,7 @@ int main(int argc, char **argv)
 
     if(extended_output)
     {
-        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, time_incl_prepare);
+        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, time_incl_prepare, sysmem_only);
     }
 
     double times[memcopy_iterations];
