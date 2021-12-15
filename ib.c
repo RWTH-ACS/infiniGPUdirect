@@ -444,13 +444,16 @@ void cleanup_send_list(void)
     }
 }
 
+//creates SEND requests. this is not needed for receiving!
+//Idea/TODO: add next send wr as parameter to fill list 
 void
-ib_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
+ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg)
 {
     
     //memset(ib_com_hndl.loc_com_buf.send_buf, 0x42, ib_com_hndl.buf_size);
     static uint8_t one = 1;
     /* create work request */
+    //! basic idea: use same prepared connection and create several WR for it
     struct ibv_send_wr *send_wr = prepare_send_list_elem();
 
     if (gpumemreg)
@@ -466,7 +469,7 @@ ib_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
     }
 
 
-
+//all of this stays the same during one run
     send_wr->sg_list->addr = (uintptr_t)memreg;
     send_wr->sg_list->length = length + 1;
     send_wr->sg_list->lkey = mrs[mr_id]->lkey;
@@ -489,43 +492,42 @@ ib_prepare_run(void *memreg, size_t length, int mr_id, bool gpumemreg)
 void ib_msg_send()
 {
 
-    /* we have to call ibv_post_send() as long as 'send_list' contains elements  */
+    /* legacy?: we have to call ibv_post_send() as long as 'send_list' contains elements  
+    now: ibv_post_send() processes the whole linked list. pointer to next WR in current ibv_send_wr*/
     struct ibv_wc wc;
-    struct ibv_send_wr *remaining_send_wr = NULL;
-    do {
-        /* send data */
-        remaining_send_wr = NULL;
-        if (ibv_post_send(ib_com_hndl.qp, ib_com_hndl.send_wr, &remaining_send_wr) && (errno != ENOMEM)) {
-            fprintf(stderr,
+    struct ibv_send_wr *bad_wr;
+
+    if (ibv_post_send(ib_com_hndl.qp, ib_com_hndl.send_wr, &bad_wr) && (errno != ENOMEM))
+    {
+        fprintf(stderr,
                 "[ERROR] Could not post send - %d (%s). Abort!\n",
                 errno,
                 strerror(errno));
-            exit(EXIT_FAILURE);
-        }
+        exit(EXIT_FAILURE);
+    }
 
-        /* wait for send WRs if CQ is full */
-        int res = 0;
-        do {
-            if ((res = ibv_poll_cq(ib_com_hndl.cq, 1, &wc)) < 0) {
-                fprintf(stderr,
+    /* wait for send WRs if CQ is full */
+    int res = 0;
+    do
+    {
+        if ((res = ibv_poll_cq(ib_com_hndl.cq, 1, &wc)) < 0)
+        {
+            fprintf(stderr,
                     "[ERROR] Could not poll on CQ - %d (%s). Abort!\n",
                     errno,
                     strerror(errno));
-                exit(EXIT_FAILURE);
-            }
-        } while (res < 1);
+            exit(EXIT_FAILURE);
+        }
+    } while (res < 1);
 
-        if (wc.status != IBV_WC_SUCCESS) {
-            fprintf(stderr,
+    if (wc.status != IBV_WC_SUCCESS)
+    {
+        fprintf(stderr,
                 "###[ERROR] WR failed status %s (%d) for wr_id %lu ###\n",
                 ibv_wc_status_str(wc.status),
                 wc.status,
                 wc.wr_id);
-
-        }
-
-        ib_com_hndl.send_wr = remaining_send_wr;
-    } while (remaining_send_wr);
+    }
 
     cleanup_send_list();
 }
@@ -827,13 +829,12 @@ void ib_final_cleanup(void)
 int ib_responder_prepare(void *memptr, int mr_id, size_t length, bool togpumem)
 {
     ib_connect_responder(memptr, mr_id);
-    ib_prepare_run(memptr, length, mr_id, togpumem);
     return 0;
 }
 
 int ib_requester_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
     ib_connect_requester(memptr, mr_id, peer_node);
-    ib_prepare_run(memptr, length, mr_id, fromgpumem);
+    ib_create_send_wr(memptr, length, mr_id, fromgpumem);
     return 0;
 }
