@@ -49,6 +49,7 @@
                     // fix for mlx_5 adapter
 #define MAX_INLINE_DATA (0)
 #define MAX_RECV_WR (1)
+//max here seems to be 3:
 #define MAX_SEND_SGE    (1)
 #define MAX_RECV_SGE    (1)
 
@@ -99,6 +100,7 @@ static struct sockaddr_in ib_responder;
 static int com_sock = 0;
 static int listen_sock = 0;
 static int device_id = 0;
+static uint32_t max_qp_wr = 8192;
 
 
 static struct ibv_mr *mrs[32];
@@ -631,6 +633,8 @@ int ib_init(int _device_id)
             exit(EXIT_FAILURE);
         }
 
+        /*determine max number of work requests*/
+        max_qp_wr = (uint32_t)ib_com_hndl.dev_attr_ex.orig_attr.max_qp_wr;
 
         /* check all ports */
         size_t num_ports = ib_com_hndl.dev_attr_ex.orig_attr.phys_port_cnt;
