@@ -14,7 +14,7 @@ int ib_allocate_memreg(void** mem_address, int memsize, int mr_id, bool gpumemre
 int ib_responder_send_result(void *memptr, int mr_id, int length, char *peer_node);
 int ib_responder_prepare(void *memptr, int mr_id, size_t length, bool togpumem);
 int ib_requester_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem);
-void ib_msg_send();
+void ib_msg_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem);
 void ib_msg_recv(uint32_t length, int mr_id);
 
 #include <stdint.h>

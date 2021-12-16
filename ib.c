@@ -37,7 +37,7 @@
 #define PAGE_SIZE       (0x1000)
 
 /* IB definitions */
-#define CQ_ENTRIES      (1)
+#define CQ_ENTRIES      (100)
 #define IB_WRITE_WR_ID   (2)
 #define IB_RECV_WR_ID    (1)
 #define IB_SEND_WR_ID    (0)
@@ -48,7 +48,7 @@
                     // com_hndl.dev_attr_ex.orig_attr.max_qp_wr
                     // fix for mlx_5 adapter
 #define MAX_INLINE_DATA (0)
-#define MAX_RECV_WR (1)
+#define MAX_RECV_WR (100)
 //max here seems to be 3:
 #define MAX_SEND_SGE    (1)
 #define MAX_RECV_SGE    (1)
@@ -186,7 +186,7 @@ ib_barrier(int mr_id, int32_t responder)
             (int)wc.wr_id);
     }
 }
-//do we need this? possible
+
 size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
 {
     /* allocate memory and register it with the protection domain */
@@ -489,11 +489,15 @@ ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg)
 
 
 /* send data */
-void ib_msg_send()
+void ib_msg_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
 
     /* legacy?: we have to call ibv_post_send() as long as 'send_list' contains elements  
     now: ibv_post_send() processes the whole linked list. pointer to next WR in current ibv_send_wr*/
+
+//create send WR
+    ib_create_send_wr(memptr, length, mr_id, fromgpumem);
+
     struct ibv_wc wc;
     struct ibv_send_wr *bad_wr;
 
@@ -835,6 +839,5 @@ int ib_responder_prepare(void *memptr, int mr_id, size_t length, bool togpumem)
 int ib_requester_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
 {
     ib_connect_requester(memptr, mr_id, peer_node);
-    ib_create_send_wr(memptr, length, mr_id, fromgpumem);
     return 0;
 }

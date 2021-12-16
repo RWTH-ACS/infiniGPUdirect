@@ -98,16 +98,15 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
 
     if(extended_output) printf("preparing server...\n");
     ib_init_oob_listener(tcp_port);
-    //ib_responder_prepare(d_odata, 1, memSize, true);
 
     if(extended_output) printf("receiving...\n");
 
     if(sysmem_only)
     {
         ib_allocate_memreg(&h_odata, memSize, 0, false);
+        ib_responder_prepare(h_odata, 0, memSize, false);
         for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
         {
-            ib_responder_prepare(h_odata, 0, memSize, false);
             ib_msg_recv(memSize, 0);
         }
         ib_free_memreg(h_odata, 0, false);
@@ -116,9 +115,9 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     {
         //does not work as intended?
         ib_allocate_memreg(&h_odata, memSize, 0, false);
+        ib_responder_prepare(h_odata, 0, memSize, false);
         for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
         {
-            ib_responder_prepare(h_odata, 0, memSize, false);
             ib_msg_recv(memSize, 0);
             cudaMemcpy(d_odata, h_odata, memSize, cudaMemcpyHostToDevice);
         }
@@ -126,9 +125,9 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     }
     else
     {
+        ib_responder_prepare(d_odata, 1, memSize, true);
         for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
         {
-            ib_responder_prepare(d_odata, 1, memSize, true);
             ib_msg_recv(memSize, 1);
         }
     }
@@ -153,72 +152,59 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     cudaMemcpy(d_idata, h_idata, memSize, cudaMemcpyHostToDevice);
 
     if(extended_output) printf("preparing client...\n");
-    //ib_requester_prepare(d_idata, 1, memSize, peer_node, true);
 
     if(extended_output) printf("warming up...\n");
 
     if(sysmem_only)
     {
+        ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {   
-            ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
-            ib_msg_send();
+            ib_msg_send(h_idata, 0, memSize, peer_node, false);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
 
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
-            if (time_incl_prepare)
-                timer_start();
-            ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
-            if (!time_incl_prepare)
-                timer_start();
-            ib_msg_send();
+            timer_start();
+            ib_msg_send(h_idata, 0, memSize, peer_node, false);
             timer_stop(times);
         }
     }
     else if(no_p2p)
     {
+        ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {
-            ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
             cudaMemcpy(h_idata, d_idata, memSize, cudaMemcpyDeviceToHost);
-            ib_msg_send();
+            ib_msg_send(h_idata, 0, memSize, peer_node, false);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
 
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
-            if (time_incl_prepare)
-                timer_start();
-            ib_requester_prepare(h_idata, 0, memSize, peer_node, false);
-            if (!time_incl_prepare)
-                timer_start();
+            timer_start();
             cudaMemcpy(h_idata, d_idata, memSize, cudaMemcpyDeviceToHost);
-            ib_msg_send();
+            ib_msg_send(h_idata, 0, memSize, peer_node, false);
             timer_stop(times);
         }
     }
     else
     {
+        ib_requester_prepare(d_idata, 1, memSize, peer_node, true);
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {
-            ib_requester_prepare(d_idata, 1, memSize, peer_node, true);
-            ib_msg_send();
+            ib_msg_send(d_idata, 1, memSize, peer_node, true);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
 
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
-            if (time_incl_prepare)
-                timer_start();
-            ib_requester_prepare(d_idata, 1, memSize, peer_node, true);
-            if (!time_incl_prepare)
-                timer_start();
-            ib_msg_send();
+            timer_start();
+            ib_msg_send(d_idata, 1, memSize, peer_node, true);
             timer_stop(times);
         }
     }
@@ -248,13 +234,13 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     if(extended_output) printf("preparing client...\n");
     ib_init_oob_sender(peer_node, tcp_port);
-    //ib_requester_prepare(h_idata, 1, memSize, peer_node, false);
     
     if(extended_output) printf("warming up...\n");
+
+    ib_requester_prepare(h_idata, 1, memSize, peer_node, false);
     for (unsigned int i = 0; i < warmup_iterations; i++)
     {
-        ib_requester_prepare(h_idata, 1, memSize, peer_node, false);
-        ib_msg_send();
+        ib_msg_send(h_idata, 1, memSize, peer_node, false);
     }
 
     // copy data from GPU to Host
@@ -262,10 +248,8 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     for (unsigned int i = 0; i < memcopy_iterations; i++)
     {
-        if (time_incl_prepare) timer_start();
-        ib_requester_prepare(h_idata, 1, memSize, peer_node, false);
-        if (!time_incl_prepare) timer_start();
-        ib_msg_send();
+        timer_start();
+        ib_msg_send(h_idata, 1, memSize, peer_node, false);
         timer_stop(times);
     }
 
@@ -284,14 +268,14 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     ib_allocate_memreg(&h_odata, memSize, 1, false);
 
     if(extended_output) printf("preparing server...\n");
-    //ib_responder_prepare(h_odata, 1, memSize, false);
 
     // copy data from GPU to Host
 
     if(extended_output) printf("receving...\n");
+
+    ib_responder_prepare(h_odata, 1, memSize, false);
     for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
     {
-        ib_responder_prepare(h_odata, 1, memSize, false);
         ib_msg_recv(memSize, 1);
     }
 
