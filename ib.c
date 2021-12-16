@@ -489,7 +489,7 @@ ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg)
 
 
 /* send data */
-void ib_msg_send(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
+void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem)
 {
 
     /* legacy?: we have to call ibv_post_send() as long as 'send_list' contains elements  
@@ -828,16 +828,4 @@ void ib_final_cleanup(void)
         exit(errno);
     }
 //    printf("Done!\n");
-}
-
-int ib_responder_prepare(void *memptr, int mr_id, size_t length, bool togpumem)
-{
-    ib_connect_responder(memptr, mr_id);
-    return 0;
-}
-
-int ib_requester_prepare(void *memptr, int mr_id, size_t length, char *peer_node, bool fromgpumem)
-{
-    ib_connect_requester(memptr, mr_id, peer_node);
-    return 0;
 }
