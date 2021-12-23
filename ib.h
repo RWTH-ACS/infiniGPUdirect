@@ -13,9 +13,8 @@ void ib_final_cleanup(void);
 int ib_allocate_memreg(void** mem_address, int memsize, int mr_id, bool gpumemreg);
 int ib_responder_send_result(void *memptr, int mr_id, int length, char *peer_node);
 void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int send_list, int iterations);
-void ib_msg_recv(uint32_t length, int mr_id);
+void ib_msg_recv(uint32_t length, int mr_id, int iterations);
 int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem, int iterations);
-int ib_msg_recv_list(uint32_t length, int mr_id, int iterations);
 
 
 #include <stdint.h>

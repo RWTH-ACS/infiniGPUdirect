@@ -545,7 +545,7 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
 }
 
 /* recv data */
-void ib_msg_recv(uint32_t length, int mr_id)
+void ib_msg_recv(uint32_t length, int mr_id, int iterations)
 {
     /* request notification on the event channel */
 	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
@@ -564,16 +564,25 @@ void ib_msg_recv(uint32_t length, int mr_id)
 	struct ibv_recv_wr recv_wr;
 	struct ibv_recv_wr *bad_wr;
 	uint32_t recv_buf = 0;
+    struct ibv_recv_wr* last_recv_wr = NULL;
 
-	memset(&sg, 0, sizeof(sg));
-	sg.addr	  = (uintptr_t)&recv_buf;
-	sg.length = sizeof(recv_buf);
-	sg.lkey	  = mrs[mr_id]->lkey;
+	for (unsigned int i = 0; i < iterations; i++){
 
-	memset(&recv_wr, 0, sizeof(recv_wr));
-	recv_wr.wr_id      = 0;
-	recv_wr.sg_list    = &sg;
-	recv_wr.num_sge    = 1;
+        memset(&sg, 0, sizeof(sg));
+	    sg.addr	  = (uintptr_t)&recv_buf;
+	    sg.length = sizeof(recv_buf);
+	    sg.lkey	  = mrs[mr_id]->lkey;
+
+	    memset(&recv_wr, 0, sizeof(recv_wr));
+	    recv_wr.wr_id      = 0;
+        recv_wr.next       = last_recv_wr;
+	    recv_wr.sg_list    = &sg;
+	    recv_wr.num_sge    = 1;
+
+        last_recv_wr = &recv_wr;
+
+    }
+
 
 	if (ibv_post_recv(ib_com_hndl.qp, &recv_wr, &bad_wr) < 0) {
 	        fprintf(stderr,
@@ -845,68 +854,3 @@ int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem
     }
 }
 
-
-int ib_msg_recv_list(uint32_t length, int mr_id, int iterations)
-{
-/* request notification on the event channel */
-	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
-		fprintf(stderr,
-			"[ERROR] Could request notify for completion queue "
-			"- %d (%s). Abort!\n",
-			errno,
-			strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-
-	/* post recv matching IBV_RDMA_WRITE_WITH_IMM */
-	struct ibv_cq *ev_cq;
-	void *ev_ctx;
-	struct ibv_recv_wr *bad_wr;
-    struct ibv_sge sg;
-    struct ibv_recv_wr recv_wr;
-
-    struct ibv_recv_wr* last_recv_wr = NULL;
-
-    for (unsigned int i = 0; i < iterations; i++){
-        struct ibv_sge sg;
-        struct ibv_recv_wr recv_wr;
-    	uint32_t recv_buf = 0;
-
-        memset(&sg, 0, sizeof(sg));
-	    sg.addr	  = (uintptr_t)&recv_buf;
-	    sg.length = sizeof(recv_buf);
-	    sg.lkey	  = mrs[mr_id]->lkey;
-
-	    memset(&recv_wr, 0, sizeof(recv_wr));
-	    recv_wr.wr_id      = 0;
-        recv_wr.next       = last_recv_wr;
-	    recv_wr.sg_list    = &sg;
-	    recv_wr.num_sge    = 1;
-
-        last_recv_wr = &recv_wr;
-
-
-    }
-
-	if (ibv_post_recv(ib_com_hndl.qp, &recv_wr, &bad_wr) < 0) {
-	        fprintf(stderr,
-			"[ERROR] Could post recv - %d (%s). Abort!\n",
-			errno,
-			strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-
-	/* wait for requested event */
-	if (ibv_get_cq_event(ib_com_hndl.comp_chan, &ev_cq, &ev_ctx) < 0) {
-	        fprintf(stderr,
-			"[ERROR] Could get event from completion channel "
-			"- %d (%s). Abort!\n",
-			errno,
-			strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-
-	/* acknowledge the event */
-	ibv_ack_cq_events(ib_com_hndl.cq, 1);
-
-}
