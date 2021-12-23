@@ -32,6 +32,7 @@ static int extended_output = 0;
 static int short_output = 0;
 static int time_incl_prepare = 0;
 static int sysmem_only = 0;
+static int send_list = 1;
 
 static int tcp_port = DEFAULT_TCP_PORT;
 static int memcopy_iterations = DEFAULT_MEMCOPY_ITERATIONS;
@@ -89,6 +90,15 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     double bandwidthInGBs = 0.0;
     double bandwidthInGiBs = 0.0;
 
+    int warmup = warmup_iterations;
+    int benchmark = memcopy_iterations;
+
+    if(send_list)
+    {
+        warmup = 1;
+        benchmark = 1;
+    }
+
     void *d_odata;
     void *h_odata;
 
@@ -126,9 +136,9 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     else
     {
         ib_connect_responder(d_odata, 1);
-        for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
+        for (unsigned int i = 0; i < benchmark + warmup; i++)
         {
-            ib_msg_recv(memSize, 1);
+            ib_msg_recv_list(memSize, 1, memcopy_iterations + warmup_iterations);
         }
     }
 
@@ -160,7 +170,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         ib_connect_requester(h_idata, 0, peer_node);
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {   
-            ib_msg_send(h_idata, 0, memSize, false);
+            ib_msg_send(h_idata, 0, memSize, false, send_list, warmup_iterations);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
@@ -168,7 +178,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         for (unsigned int i = 0; i < memcopy_iterations; i++)
         {
             timer_start();
-            ib_msg_send(h_idata, 0, memSize, false);
+            ib_msg_send(h_idata, 0, memSize, false, send_list, memcopy_iterations);
             timer_stop(times);
         }
     }
@@ -178,7 +188,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         for (unsigned int i = 0; i < warmup_iterations; i++)
         {
             cudaMemcpy(h_idata, d_idata, memSize, cudaMemcpyDeviceToHost);
-            ib_msg_send(h_idata, 0, memSize, false);
+            ib_msg_send(h_idata, 0, memSize, false, send_list, warmup_iterations);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
@@ -187,30 +197,35 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         {
             timer_start();
             cudaMemcpy(h_idata, d_idata, memSize, cudaMemcpyDeviceToHost);
-            ib_msg_send(h_idata, 0, memSize, false);
+            ib_msg_send(h_idata, 0, memSize, false, send_list, memcopy_iterations);
             timer_stop(times);
         }
     }
     else
     {
         ib_connect_requester(d_idata, 1, peer_node);
-        for (unsigned int i = 0; i < warmup_iterations; i++)
+
+        if(send_list) ib_prepare_send_list(d_idata, 1, memSize, true, warmup_iterations);
+
+        for (unsigned int i = 0; i < warmup; i++)
         {
-            ib_msg_send(d_idata, 1, memSize, true);
+            ib_msg_send(d_idata, 1, memSize, true, send_list, warmup_iterations);
         }
         // copy data from GPU to Host
         if(extended_output) printf("sending...\n");
 
-        for (unsigned int i = 0; i < memcopy_iterations; i++)
+        if(send_list) ib_prepare_send_list(d_idata, 1, memSize, true, memcopy_iterations);
+
+        for (unsigned int i = 0; i < benchmark; i++)
         {
             timer_start();
-            ib_msg_send(d_idata, 1, memSize, true);
+            ib_msg_send(d_idata, 1, memSize, true, send_list, memcopy_iterations);
             timer_stop(times);
         }
     }
     if(extended_output) printf("finished.\n");
 
-    print_times(ALL, memSize, "Device to Host", times, memcopy_iterations, short_output);
+    print_times(ALL, memSize, "Device to Host", times, benchmark, short_output);
 
     // clean up memory
 
@@ -226,6 +241,15 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     double bandwidthInGiBs = 0.0;
     void *h_idata;
 
+    int warmup = warmup_iterations;
+    int benchmark = memcopy_iterations;
+
+    if(send_list)
+    {
+        warmup = 1;
+        benchmark = 1;
+    }
+
     struct timeval start, end;
 
     // allocate memory
@@ -238,22 +262,28 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     if(extended_output) printf("warming up...\n");
 
     ib_connect_requester(h_idata, 1, peer_node);
-    for (unsigned int i = 0; i < warmup_iterations; i++)
+
+    if(send_list) ib_prepare_send_list(h_idata, 1, memSize, false, warmup_iterations);
+
+
+    for (unsigned int i = 0; i < warmup; i++)
     {
-        ib_msg_send(h_idata, 1, memSize, false);
+        ib_msg_send(h_idata, 1, memSize, false, send_list, warmup_iterations);
     }
 
     // copy data from GPU to Host
     if(extended_output) printf("sending...\n");
 
-    for (unsigned int i = 0; i < memcopy_iterations; i++)
+    if(send_list) ib_prepare_send_list(h_idata, 1, memSize, false, memcopy_iterations);
+
+    for (unsigned int i = 0; i < benchmark; i++)
     {
         timer_start();
-        ib_msg_send(h_idata, 1, memSize, false);
+        ib_msg_send(h_idata, 1, memSize, false, send_list, memcopy_iterations);
         timer_stop(times);
     }
 
-    print_times(ALL, memSize, "Host To Device", times, memcopy_iterations, short_output);
+    print_times(ALL, memSize, "Host To Device", times, benchmark, short_output);
 
     if(extended_output) printf("finished. cleaning up...\n");
 
@@ -274,9 +304,10 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     if(extended_output) printf("receving...\n");
 
     ib_connect_responder(h_odata, 1);
-    for (unsigned int i = 0; i < memcopy_iterations + warmup_iterations; i++)
+
+    for (unsigned int i = 0; i < benchmark + warmup; i++)
     {
-        ib_msg_recv(memSize, 1);
+        ib_msg_recv_list(memSize, 1, memcopy_iterations + warmup_iterations);
     }
 
     if(extended_output) printf("finished. cleaning up...\n");

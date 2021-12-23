@@ -417,14 +417,14 @@ ib_con_com_buf()
  * transmission of a single memory page using the IBV_WR_RDMA_WRITE verb.
  */
 static inline struct ibv_send_wr *
-prepare_send_list_elem(void)
+prepare_send_list_elem(struct ibv_send_wr * next_send_wr)
 {
     /* create work request */
     struct ibv_send_wr *send_wr =  (struct ibv_send_wr*)calloc(1, sizeof(struct ibv_send_wr));
     struct ibv_sge *sge =  (struct ibv_sge*)calloc(1, sizeof(struct ibv_sge));
 
     /* basic work request configuration */
-    send_wr->next       = NULL;
+    send_wr->next       = next_send_wr;
     send_wr->sg_list    = sge;
     send_wr->num_sge    = 1;
 
@@ -442,19 +442,20 @@ void cleanup_send_list(void)
         cur_send_wr = cur_send_wr->next;
         free(tmp_send_wr);
     }
+
+    ib_com_hndl.send_wr = NULL;
 }
 
 //creates SEND requests. this is not needed for receiving!
-//Idea/TODO: add next send wr as parameter to fill list 
 void
-ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg)
+ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
 {
     
     //memset(ib_com_hndl.loc_com_buf.send_buf, 0x42, ib_com_hndl.buf_size);
     static uint8_t one = 1;
     /* create work request */
     //! basic idea: use same prepared connection and create several WR for it
-    struct ibv_send_wr *send_wr = prepare_send_list_elem();
+    struct ibv_send_wr *send_wr = prepare_send_list_elem(next_send_wr);
 
     if (gpumemreg)
     {
@@ -489,14 +490,16 @@ ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg)
 
 
 /* send data */
-void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem)
+void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int send_list, int iterations)
 {
 
     /* legacy?: we have to call ibv_post_send() as long as 'send_list' contains elements  
     now: ibv_post_send() processes the whole linked list. pointer to next WR in current ibv_send_wr*/
 
 //create send WR
-    ib_create_send_wr(memptr, length, mr_id, fromgpumem);
+    if(!send_list){
+        ib_create_send_wr(memptr, length, mr_id, fromgpumem, NULL);
+    }
 
     struct ibv_wc wc;
     struct ibv_send_wr *bad_wr;
@@ -512,8 +515,12 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem)
 
     /* wait for send WRs if CQ is full */
     int res = 0;
+    int stop_condition = send_list ? iterations : 1;
+
+//    for(int i = 0; i < iterations; i++){
     do
     {
+        
         if ((res = ibv_poll_cq(ib_com_hndl.cq, 1, &wc)) < 0)
         {
             fprintf(stderr,
@@ -532,6 +539,7 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem)
                 wc.status,
                 wc.wr_id);
     }
+//    }
 
     cleanup_send_list();
 }
@@ -828,4 +836,77 @@ void ib_final_cleanup(void)
         exit(errno);
     }
 //    printf("Done!\n");
+}
+
+int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem, int iterations)
+{
+    for (unsigned int i = 0; i < iterations; i++){
+    ib_create_send_wr(memptr, length, mr_id, fromgpumem, ib_com_hndl.send_wr);
+    }
+}
+
+
+int ib_msg_recv_list(uint32_t length, int mr_id, int iterations)
+{
+/* request notification on the event channel */
+	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
+		fprintf(stderr,
+			"[ERROR] Could request notify for completion queue "
+			"- %d (%s). Abort!\n",
+			errno,
+			strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	/* post recv matching IBV_RDMA_WRITE_WITH_IMM */
+	struct ibv_cq *ev_cq;
+	void *ev_ctx;
+	struct ibv_recv_wr *bad_wr;
+    struct ibv_sge sg;
+    struct ibv_recv_wr recv_wr;
+
+    struct ibv_recv_wr* last_recv_wr = NULL;
+
+    for (unsigned int i = 0; i < iterations; i++){
+        struct ibv_sge sg;
+        struct ibv_recv_wr recv_wr;
+    	uint32_t recv_buf = 0;
+
+        memset(&sg, 0, sizeof(sg));
+	    sg.addr	  = (uintptr_t)&recv_buf;
+	    sg.length = sizeof(recv_buf);
+	    sg.lkey	  = mrs[mr_id]->lkey;
+
+	    memset(&recv_wr, 0, sizeof(recv_wr));
+	    recv_wr.wr_id      = 0;
+        recv_wr.next       = last_recv_wr;
+	    recv_wr.sg_list    = &sg;
+	    recv_wr.num_sge    = 1;
+
+        last_recv_wr = &recv_wr;
+
+
+    }
+
+	if (ibv_post_recv(ib_com_hndl.qp, &recv_wr, &bad_wr) < 0) {
+	        fprintf(stderr,
+			"[ERROR] Could post recv - %d (%s). Abort!\n",
+			errno,
+			strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	/* wait for requested event */
+	if (ibv_get_cq_event(ib_com_hndl.comp_chan, &ev_cq, &ev_ctx) < 0) {
+	        fprintf(stderr,
+			"[ERROR] Could get event from completion channel "
+			"- %d (%s). Abort!\n",
+			errno,
+			strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	/* acknowledge the event */
+	ibv_ack_cq_events(ib_com_hndl.cq, 1);
+
 }
