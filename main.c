@@ -231,7 +231,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     }
     if(extended_output) printf("finished.\n");
 
-    print_times(ALL, memSize, "Device to Host", times, benchmark, short_output);
+    print_times(ALL, memSize, "Device to Host", times, memcopy_iterations, short_output, send_list);
 
     // clean up memory
 
@@ -292,7 +292,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
         timer_stop(times);
     }
 
-    print_times(ALL, memSize, "Host To Device", times, benchmark, short_output);
+    print_times(ALL, memSize, "Host To Device", times, memcopy_iterations, short_output, send_list);
 
     if(extended_output) printf("finished. cleaning up...\n");
 

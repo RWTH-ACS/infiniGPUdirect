@@ -32,13 +32,14 @@ int printInfo()
     return 0;
 }
 
-void print_times(enum print_flags flags, size_t memSize, char * type, double* times, int memcopy_iterations, int short_output)
+void print_times(enum print_flags flags, size_t memSize, char * type, double* times, int memcopy_iterations, int short_output, int send_list)
 {
     double val;
     double avg;
+    int ind_output = send_list ? 1 : memcopy_iterations;
     printf("-----------------------------------------------\n");
     printf("%s transfer:\n", type);
-    for (int i = 0; i < memcopy_iterations; i++)
+    for (int i = 0; i < ind_output; i++)
     {
         avg += times[i];
         if (!short_output && flags && INDVAL) {
@@ -58,7 +59,7 @@ void print_times(enum print_flags flags, size_t memSize, char * type, double* ti
         }
         val /= memcopy_iterations;
         val = sqrt(val);
-        printf("Std. Deviation %f s\n", val);
+        if(!send_list) printf("Std. Deviation %f s\n", val);
     }
     // calculate bandwidth in GB/s
     if (flags & GB) {
