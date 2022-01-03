@@ -102,6 +102,7 @@ void print_help(int default_size, int default_memcopy_iterations, int default_wa
                     " -m            <memory size> (default %d)\n -i            <memcopy iterations> (default %d)\n "
                     "-w            <warmup iterations> (default %d)\n -t            <TCP port> (default %d)\n"
                     " --nop2p       disable peer to peer (flag)\n --extended    extended terminal output (flag)\n --short       short terminal output (flag)\n"
-                    " --inclprep    include preparation time (flag)\n --sysmem      data transfer only between system memory (flag)\n",
+                    " --inclprep    include preparation time (flag)\n --sysmem      data transfer only between system memory (flag)\n"
+                    " --sendlist    send all iterations at once as a list of WRs (flag)\n",
                      default_size, default_memcopy_iterations, default_warmup_iterations, default_tcp_port);
 }
