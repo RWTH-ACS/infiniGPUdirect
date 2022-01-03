@@ -93,7 +93,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     int warmup = warmup_iterations;
     int benchmark = memcopy_iterations;
     int recv_iterations = send_list ? (warmup_iterations + memcopy_iterations) : 1;
-
+    int recv_loop = send_list ? 1 : (warmup_iterations + memcopy_iterations);
     if(send_list)
     {
         warmup = 1;
@@ -127,7 +127,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
         //does not work as intended?
         ib_allocate_memreg(&h_odata, memSize, 0, false);
         ib_connect_responder(h_odata, 0);
-        for (unsigned int i = 0; i < benchmark + warmup; i++)
+        for (unsigned int i = 0; i < recv_loop; i++)
         {
             ib_msg_recv(memSize, 0, recv_iterations);
             cudaMemcpy(d_odata, h_odata, memSize, cudaMemcpyHostToDevice);
@@ -137,7 +137,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     else
     {
         ib_connect_responder(d_odata, 1);
-        for (unsigned int i = 0; i < benchmark + warmup; i++)
+        for (unsigned int i = 0; i < recv_loop ; i++)
         {
             ib_msg_recv(memSize, 1, recv_iterations);
         }
@@ -250,6 +250,8 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     int warmup = warmup_iterations;
     int benchmark = memcopy_iterations;
     int recv_iterations = send_list ? (warmup_iterations + memcopy_iterations) : 1;
+    int recv_loop = send_list ? 1 : (warmup_iterations + memcopy_iterations);
+
 
     if(send_list)
     {
@@ -312,7 +314,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     ib_connect_responder(h_odata, 1);
 
-    for (unsigned int i = 0; i < benchmark + warmup; i++)
+    for (unsigned int i = 0; i < recv_loop; i++)
     {
         ib_msg_recv(memSize, 1, recv_iterations);
     }

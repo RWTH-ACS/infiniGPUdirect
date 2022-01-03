@@ -521,7 +521,7 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
     do
     {
         
-        if ((res = ibv_poll_cq(ib_com_hndl.cq, 1, &wc)) < 0)
+        if ((res += ibv_poll_cq(ib_com_hndl.cq, iterations, &wc)) < 0)
         {
             fprintf(stderr,
                     "[ERROR] Could not poll on CQ - %d (%s). Abort!\n",
@@ -529,8 +529,11 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
                     strerror(errno));
             exit(EXIT_FAILURE);
         }
-    } while (res < 1);
 
+
+    } while (res < stop_condition);
+
+//this has to stay outside of the poll_cq loop! 
     if (wc.status != IBV_WC_SUCCESS)
     {
         fprintf(stderr,
@@ -548,14 +551,14 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
 void ib_msg_recv(uint32_t length, int mr_id, int iterations)
 {
     /* request notification on the event channel */
-	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
+/*	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
 		fprintf(stderr,
 			"[ERROR] Could request notify for completion queue "
 			"- %d (%s). Abort!\n",
 			errno,
 			strerror(errno));
 		exit(EXIT_FAILURE);
-	}
+	}*/
 
 	/* post recv matching IBV_RDMA_WRITE_WITH_IMM */
 	struct ibv_cq *ev_cq;
@@ -593,17 +596,36 @@ void ib_msg_recv(uint32_t length, int mr_id, int iterations)
 	}
 
 	/* wait for requested event */
-	if (ibv_get_cq_event(ib_com_hndl.comp_chan, &ev_cq, &ev_ctx) < 0) {
-	        fprintf(stderr,
-			"[ERROR] Could get event from completion channel "
-			"- %d (%s). Abort!\n",
-			errno,
-			strerror(errno));
-		exit(EXIT_FAILURE);
-	}
+    int res = 0;
+    do
+    {
 
-	/* acknowledge the event */
-	ibv_ack_cq_events(ib_com_hndl.cq, 1);
+        if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0)
+        {
+            fprintf(stderr,
+                    "[ERROR] Could request notify for completion queue "
+                    "- %d (%s). Abort!\n",
+                    errno,
+                    strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+
+        if (ibv_get_cq_event(ib_com_hndl.comp_chan, &ev_cq, &ev_ctx) < 0)
+        {
+            fprintf(stderr,
+                    "[ERROR] Could get event from completion channel "
+                    "- %d (%s). Abort!\n",
+                    errno,
+                    strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+        ibv_ack_cq_events(ib_com_hndl.cq, 1);
+
+        res++;
+    } while (res < iterations);
+
+    /* acknowledge the event */
+//	ibv_ack_cq_events(ib_com_hndl.cq, iterations);
 
 }
 
@@ -853,4 +875,3 @@ int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem
     ib_create_send_wr(memptr, length, mr_id, fromgpumem, ib_com_hndl.send_wr);
     }
 }
-
