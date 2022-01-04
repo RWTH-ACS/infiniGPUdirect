@@ -30,7 +30,6 @@
 static int no_p2p = 0;
 static int extended_output = 0;
 static int short_output = 0;
-static int time_incl_prepare = 0;
 static int sysmem_only = 0;
 static int send_list = 0;
 
@@ -116,7 +115,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     {
         ib_allocate_memreg(&h_odata, memSize, 0, false);
         ib_connect_responder(h_odata, 0);
-        for (unsigned int i = 0; i < benchmark + warmup; i++)
+        for (unsigned int i = 0; i < recv_loop; i++)
         {
             ib_msg_recv(memSize, 0, recv_iterations);
         }
@@ -341,7 +340,6 @@ int main(int argc, char **argv)
           {"nop2p", no_argument,  &no_p2p, 1},
           {"extended", no_argument,  &extended_output, 1},
           {"short", no_argument,  &short_output, 1},
-          {"inclprep", no_argument,  &time_incl_prepare, 1},
           {"sysmem", no_argument,  &sysmem_only, 1},
           {"sendlist", no_argument,  &send_list, 1},
           {0, 0, 0, 0}
@@ -395,7 +393,7 @@ int main(int argc, char **argv)
 
     if(extended_output)
     {
-        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, time_incl_prepare, sysmem_only, send_list);
+        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, sysmem_only, send_list);
     }
 
     double times[memcopy_iterations];
