@@ -71,11 +71,11 @@ Extended:
 
 On server "ghost" via InfiniBand device 1 on GPU 1
 ```
-./ibTest -s -p "elmo" -d 1 -g 1 --nop2p --extended
+./ibTest -s -p "elmo" -d 1 -g 1 -i 30 --nop2p --extended
 ```
 
 On client "elmo" via InfiniBand device 1 on GPU 1
 ```
-./ibTest -c -p "ghost" -d 1 --nop2p --extended
+./ibTest -c -p "ghost" -d 1 -i 30 --nop2p --extended
 ```
 
