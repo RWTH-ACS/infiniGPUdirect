@@ -1,6 +1,7 @@
 /*
  * Copyright 2014 Simon Pickartz,
- *           2020 Niklas Eiling
+ *           2020-2022 Niklas Eiling
+ *           2021-2022 Laura Fuentes Grau   
  *        Instiute for Automation of Complex Power Systems,
  *        RWTH Aachen University
  *
