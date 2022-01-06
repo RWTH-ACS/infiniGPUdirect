@@ -1,5 +1,27 @@
-#ifndef _CPU_IB_H_
-#define _CPU_IB_H_
+/*
+ * Copyright 2014 Simon Pickartz,
+ *           2020-2022 Niklas Eiling
+ *           2021-2022 Laura Fuentes Grau   
+ *        Instiute for Automation of Complex Power Systems,
+ *        RWTH Aachen University
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+/** InfiniBand functions
+ * Provides all neccessary functions and verbs for IB communication
+ */
+
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -20,7 +42,4 @@ int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem
 #include <stdint.h>
 int ib_init_oob_listener(uint16_t port);
 int ib_init_oob_sender(const char* address, uint16_t port);
-
-#endif
-
 

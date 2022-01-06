@@ -58,6 +58,7 @@
 
 /*
  * Helper data types
+ * QP: Queue Pair: consists typically of a sending and receiving queue where Work Requests (WR) are stored
  */
 typedef struct ib_qp_info {
     uint32_t qpn;
@@ -67,7 +68,7 @@ typedef struct ib_qp_info {
     uint64_t addr;
 } ib_qp_info_t;
 
-typedef struct ib_com_buf {
+typedef struct ib_com_buf { /*Communication Buffer information*/
     uint8_t *send_buf;
     uint8_t *recv_buf;
     ib_qp_info_t qp_info;
@@ -76,7 +77,7 @@ typedef struct ib_com_buf {
 } ib_com_buf_t;
 
 
-typedef struct ib_com_hndl {
+typedef struct ib_com_hndl { /*Communication Handler: contains all necessary information for InfiniBand communication*/
     struct ibv_context      *ctx;       /* device context */
     struct ibv_device_attr_ex   dev_attr_ex;    /* extended device attributes */
     struct ibv_port_attr        port_attr;  /* port attributes */
@@ -97,27 +98,21 @@ typedef struct ib_com_hndl {
 uint8_t my_mask, rem_mask;
 
 static ib_com_hndl_t ib_com_hndl;
-static struct sockaddr_in ib_responder;
-static int com_sock = 0;
-static int listen_sock = 0;
 static int device_id = 0;
-static uint32_t max_qp_wr = 8192;
+static uint32_t max_qp_wr = 8192; /*device parameter: max number of Work Requests in on QP*/
 
 
-static struct ibv_mr *mrs[32];
-//static size_t mr_len = 0;
+static struct ibv_mr *mrs[32]; /*TODO make into list for dynamic length*/
 
 
 static oob_t oob;
 
-
-/*
- * Helper functions
+/**
+ * \brief IB synchronization barrier
+ * 
+ * synchronizes requester and responder in case of one_sided communication
  */
-
-/* synchronize requester and responder in case of one_sided */
-void
-ib_barrier(int mr_id, int32_t responder)
+void ib_barrier(int mr_id, int32_t responder)
 {
     if (responder) {
         struct ibv_sge sg_list = {
@@ -188,10 +183,13 @@ ib_barrier(int mr_id, int32_t responder)
     }
 }
 
+/**
+ * \brief registers a memory region with the protection domain
+ * 
+ * This doesn NOT allocate memory
+ */
 size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
 {
-    /* allocate memory and register it with the protection domain */
-//    int res;
     if (mem_address == NULL) return 0;
 
     if ((mrs[mr_id] = ibv_reg_mr(ib_com_hndl.pd,
@@ -209,9 +207,14 @@ size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
     return 0;
 }
 
+
+/**
+ * \brief allocates and registers a memory region with the protection domain
+ * 
+ * allocates rounded up memory region. Parameter gpumemreg signals if it should be system or gpu memory
+ */
 size_t ib_allocate_memreg(void **mem_address, size_t memsize, int mr_id, bool gpumemreg)
 {
-    /* allocate memory and register it with the protection domain */
     int res;
     size_t real_size = PAGE_ROUND_UP(memsize + 2);
     if (mem_address == NULL)
@@ -268,10 +271,13 @@ size_t ib_allocate_memreg(void **mem_address, size_t memsize, int mr_id, bool gp
     return 0;
 }
 
-
-/* initialize communication buffer for data transfer */
-void
-ib_init_com_hndl(int mr_id)
+/**
+ * \brief initializes communication buffer for data transfer
+ * 
+ * Creates completion event channel and completion queue. Creates send and recv queue pair and initializes it. Sets QP into INIT state and
+ * fills in local QP info.
+ */
+void ib_init_com_hndl(int mr_id)
 {
     /* create completion event channel */
     if ((ib_com_hndl.comp_chan =
@@ -351,9 +357,12 @@ ib_init_com_hndl(int mr_id)
     ib_com_hndl.loc_com_buf.qp_info.lid  = ib_com_hndl.port_attr.lid;
 }
 
-/* connect to remote communication buffer */
-void
-ib_con_com_buf()
+/**
+ * \brief connects to remote communication buffer
+ * 
+ * Connects QPs and sets QP into RTS (Ready to Send) state
+ */
+void ib_con_com_buf()
 {
     /* connect QPs */
     struct ibv_qp_attr qp_attr = {
@@ -410,30 +419,13 @@ ib_con_com_buf()
 }
 
 
-
 /**
- * \brief Prepares the an 'ibv_send_wr'
+ * \brief Cleans up list of send work requests
  *
- * This function prepares an 'ibv_send_wr' structure that is prepared for the
- * transmission of a single memory page using the IBV_WR_RDMA_WRITE verb.
+ * Frees up all wr that are still saved in the list headed by ib_com_hndl.send_wr (each wr contains a pointer to the next wr)
+ * As ib_com_hndl.send_wr is the list given to ibv_post_send this needs to be called after each post to free memory and to prevent dublicate transmissions
  */
-static inline struct ibv_send_wr *
-prepare_send_list_elem(struct ibv_send_wr * next_send_wr)
-{
-    /* create work request */
-    struct ibv_send_wr *send_wr =  (struct ibv_send_wr*)calloc(1, sizeof(struct ibv_send_wr));
-    struct ibv_sge *sge =  (struct ibv_sge*)calloc(1, sizeof(struct ibv_sge));
-
-    /* basic work request configuration */
-    send_wr->next       = next_send_wr;
-    send_wr->sg_list    = sge;
-    send_wr->num_sge    = 1;
-
-    return send_wr;
-}
-
-static inline
-void cleanup_send_list(void)
+static inline void cleanup_send_list(void)
 {
     struct ibv_send_wr *cur_send_wr = ib_com_hndl.send_wr;
     struct ibv_send_wr *tmp_send_wr = NULL;
@@ -447,16 +439,25 @@ void cleanup_send_list(void)
     ib_com_hndl.send_wr = NULL;
 }
 
-//creates SEND requests. this is not needed for receiving!
-void
-ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
+/**
+ * \brief Prepares Send Work Request 'ibv_send_wr'
+ *
+ * This function prepares an 'ibv_send_wr' structure for the
+ * transmission of a single memory page using the IBV_WR_RDMA_WRITE verb.
+ */
+void ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
 {
     
     //memset(ib_com_hndl.loc_com_buf.send_buf, 0x42, ib_com_hndl.buf_size);
     static uint8_t one = 1;
     /* create work request */
-    //! basic idea: use same prepared connection and create several WR for it
-    struct ibv_send_wr *send_wr = prepare_send_list_elem(next_send_wr);
+    struct ibv_send_wr *send_wr =  (struct ibv_send_wr*)calloc(1, sizeof(struct ibv_send_wr));
+    struct ibv_sge *sge =  (struct ibv_sge*)calloc(1, sizeof(struct ibv_sge));
+
+    /* basic work request configuration */
+    send_wr->next       = next_send_wr;
+    send_wr->sg_list    = sge;
+    send_wr->num_sge    = 1;
 
     if (gpumemreg)
     {
@@ -471,7 +472,6 @@ ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct
     }
 
 
-//all of this stays the same during one run
     send_wr->sg_list->addr = (uintptr_t)memreg;
     send_wr->sg_list->length = length + 1;
     send_wr->sg_list->lkey = mrs[mr_id]->lkey;
@@ -490,14 +490,17 @@ ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct
 }
 
 
-/* send data */
+/**
+ * \brief Sends data
+ * 
+ * Posts linked list of send WRs via ibv_post_send verb to the QP for transmission
+ * ibv_post_send() processes the whole linked list. Pointer to next WR in current ibv_send_wr
+ *
+ */
 void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int send_list, int iterations)
 {
 
-    /* legacy?: we have to call ibv_post_send() as long as 'send_list' contains elements  
-    now: ibv_post_send() processes the whole linked list. pointer to next WR in current ibv_send_wr*/
-
-//create send WR
+//create send WR if we want to send only one
     if(!send_list){
         ib_create_send_wr(memptr, length, mr_id, fromgpumem, NULL);
     }
@@ -518,7 +521,6 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
     int res = 0;
     int stop_condition = send_list ? iterations : 1;
 
-//    for(int i = 0; i < iterations; i++){
     do
     {
         
@@ -534,7 +536,6 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
 
     } while (res < stop_condition);
 
-//this has to stay outside of the poll_cq loop! 
     if (wc.status != IBV_WC_SUCCESS)
     {
         fprintf(stderr,
@@ -543,23 +544,19 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
                 wc.status,
                 wc.wr_id);
     }
-//    }
 
     cleanup_send_list();
 }
 
-/* recv data */
+/**
+ * \brief Receives data
+ * 
+ * Posts linked list of receive WRs via ibv_post_recv verb to the QP and waits for incoming completion queue events
+ * ibv_post_recv() processes the whole linked list. Pointer to next WR in current ibv_recv_wr
+ *
+ */
 void ib_msg_recv(uint32_t length, int mr_id, int iterations)
 {
-    /* request notification on the event channel */
-/*	if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0) {
-		fprintf(stderr,
-			"[ERROR] Could request notify for completion queue "
-			"- %d (%s). Abort!\n",
-			errno,
-			strerror(errno));
-		exit(EXIT_FAILURE);
-	}*/
 
 	/* post recv matching IBV_RDMA_WRITE_WITH_IMM */
 	struct ibv_cq *ev_cq;
@@ -600,7 +597,7 @@ void ib_msg_recv(uint32_t length, int mr_id, int iterations)
     int res = 0;
     do
     {
-
+        /* request notification on the event channel */
         if (ibv_req_notify_cq(ib_com_hndl.cq, 1) < 0)
         {
             fprintf(stderr,
@@ -620,20 +617,25 @@ void ib_msg_recv(uint32_t length, int mr_id, int iterations)
                     strerror(errno));
             exit(EXIT_FAILURE);
         }
+
+        /* acknowledge the event */
         ibv_ack_cq_events(ib_com_hndl.cq, 1);
 
         res++;
     } while (res < iterations);
 
-    /* acknowledge the event */
-//	ibv_ack_cq_events(ib_com_hndl.cq, iterations);
-
 }
 
+/**
+ * \brief Initialises InfiniBand infastructure
+ * 
+ * Finds and opens IB device and corresponding port.
+ * Gets port attributes and allocates protection domain
+ */
 int ib_init(int _device_id)
 {
     device_id = _device_id;
-    /* initialize com_hndl */
+    /* initialize communication handler */
     memset(&ib_com_hndl, 0, sizeof(ib_com_hndl));
 
     struct ibv_device **device_list = NULL;
@@ -739,7 +741,7 @@ int ib_init(int _device_id)
     return 0;
 }
 
-/* Both next functions should be solved outside this file and be removed from here */
+/* TODO: Both next functions should be solved outside this file and be removed from here */
 int ib_init_oob_listener(uint16_t port)
 {
     return oob_init_listener(&oob, port);
@@ -749,6 +751,12 @@ int ib_init_oob_sender(const char* address, uint16_t port)
     return oob_init_sender(&oob, address, port);
 }
 
+/**
+ * \brief Connects IB peers. Responder side
+ * 
+ * Initializes local communication buffer and connects it with the remote buffer
+ * Exchanges QP information
+ */
 int ib_connect_responder(void *memreg, int mr_id)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
@@ -765,6 +773,12 @@ int ib_connect_responder(void *memreg, int mr_id)
     return 0;
 }
 
+/**
+ * \brief Connects IB peers. Requester side
+ * 
+ * initializes local communication buffer and connects it with the remote buffer
+ * exchanges QP information
+ */
 int ib_connect_requester(void *memreg, int mr_id, char *responder_address)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
@@ -781,10 +795,15 @@ int ib_connect_requester(void *memreg, int mr_id, char *responder_address)
     return 0;
 }
 
+/**
+ * \brief Initializes InfiniBand infastructure
+ * 
+ * Finds and opens IB device and corresponding port.
+ * Gets port attributes and allocates protection domain
+ */
 void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg)
 {
     /* free memory regions*/ 
-//    printf("Deregistering memory ... \n");
     if (ibv_dereg_mr(mrs[mr_id]) < 0) {
         fprintf(stderr,
                 "ERROR: Could not de-register  "
@@ -803,11 +822,14 @@ void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg)
 }
 
 
-
+/**
+ * \brief Transmission clean up
+ * 
+ * Destroys: QP, completion queue and completion event channel
+ */
 void ib_cleanup(void)
 {
     /* destroy qp */
-//    printf("Destroying queue pair ... \n");
     if (ibv_destroy_qp(ib_com_hndl.qp) < 0) {
         fprintf(stderr,
                 "ERROR: Could not destroy QP "
@@ -818,7 +840,6 @@ void ib_cleanup(void)
     }
 
     /* destroy completion queues */
-//    printf("Destroying completion queue ... \n");
     if (ibv_destroy_cq(ib_com_hndl.cq) < 0) {
         fprintf(stderr,
                 "ERROR: Could not destroy CQ"
@@ -839,13 +860,14 @@ void ib_cleanup(void)
     }
 }
 
-/*
- * Tear everything down
+/**
+ * \brief Full clean up
+ * 
+ * Destroys protection domain and closes device context
  */
 void ib_final_cleanup(void) 
 {
     /* free protection domain */
-//    printf("Deallocating PD ... \n");
     if (ibv_dealloc_pd(ib_com_hndl.pd) < 0) {
         fprintf(stderr,
             "ERROR: Unable to de-allocate PD "
@@ -857,7 +879,6 @@ void ib_final_cleanup(void)
     }
 
     /* close device context */
-//    printf("Closing device ... \n");
     if (ibv_close_device(ib_com_hndl.ctx) < 0) {
         fprintf(stderr,
             "ERROR: Unable to close device context "
@@ -867,9 +888,13 @@ void ib_final_cleanup(void)
             strerror(errno));
         exit(errno);
     }
-//    printf("Done!\n");
 }
 
+/**
+ * \brief Prepares list of dublicate send wrs
+ * 
+ * For sendlist operation. Links all iterations of wrs together so only one ibv_post_send is needed
+ */
 int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem, int iterations)
 {
     for (unsigned int i = 0; i < iterations; i++){
