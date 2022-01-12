@@ -68,6 +68,8 @@ static struct timeval startt;
 #define FLUSH_SIZE (256 * 1024 * 1024)
 char *flush_buf;
 
+static oob_t oob;
+
 
 static inline void timer_start(void)
 {
@@ -128,14 +130,14 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     // copy data from GPU to Host
 
     if(extended_output) printf("preparing server...\n");
-    ib_init_oob_listener(tcp_port);
+    oob_init_listener(&oob, tcp_port);
 
     if(extended_output) printf("receiving...\n");
 
     if(sysmem_only)
     {
         ib_allocate_memreg(&h_odata, memSize, 0, false);
-        ib_connect_responder(h_odata, 0);
+        ib_connect_responder(h_odata, 0, &oob);
         for (unsigned int i = 0; i < recv_loop; i++)
         {
             ib_msg_recv(memSize, 0, recv_iterations);
@@ -146,7 +148,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     {
         //does not work as intended?
         ib_allocate_memreg(&h_odata, memSize, 0, false);
-        ib_connect_responder(h_odata, 0);
+        ib_connect_responder(h_odata, 0, &oob);
         for (unsigned int i = 0; i < recv_loop; i++)
         {
             ib_msg_recv(memSize, 0, recv_iterations);
@@ -156,7 +158,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     }
     else
     {
-        ib_connect_responder(d_odata, 1);
+        ib_connect_responder(d_odata, 1, &oob);
         for (unsigned int i = 0; i < recv_loop ; i++)
         {
             ib_msg_recv(memSize, 1, recv_iterations);
@@ -188,7 +190,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
 
     if(sysmem_only)
     {
-        ib_connect_requester(h_idata, 0, peer_node);
+        ib_connect_requester(h_idata, 0, peer_node, &oob);
         if(send_list) ib_prepare_send_list(h_idata, 0, memSize, false, warmup_iterations);
         for (unsigned int i = 0; i < warmup; i++)
         {   
@@ -207,7 +209,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     }
     else if(no_p2p)
     {
-        ib_connect_requester(h_idata, 0, peer_node);
+        ib_connect_requester(h_idata, 0, peer_node, &oob);
         if(send_list) ib_prepare_send_list(h_idata, 0, memSize, false, warmup_iterations);
 
         for (unsigned int i = 0; i < warmup; i++)
@@ -229,7 +231,7 @@ void testBandwidthServer(size_t memSize, char* peer_node, double* times)
     }
     else
     {
-        ib_connect_requester(d_idata, 1, peer_node);
+        ib_connect_requester(d_idata, 1, peer_node, &oob);
 
         if(send_list) ib_prepare_send_list(d_idata, 1, memSize, true, warmup_iterations);
 
@@ -286,11 +288,11 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
     memset(h_idata, 1, memSize);
 
     if(extended_output) printf("preparing client...\n");
-    ib_init_oob_sender(peer_node, tcp_port);
+    oob_init_sender(&oob, peer_node, tcp_port);
     
     if(extended_output) printf("warming up...\n");
 
-    ib_connect_requester(h_idata, 1, peer_node);
+    ib_connect_requester(h_idata, 1, peer_node, &oob);
 
     if(send_list) ib_prepare_send_list(h_idata, 1, memSize, false, warmup_iterations);
 
@@ -332,7 +334,7 @@ void testBandwidthClient(size_t memSize, char* peer_node, double* times)
 
     if(extended_output) printf("receving...\n");
 
-    ib_connect_responder(h_odata, 1);
+    ib_connect_responder(h_odata, 1, &oob);
 
     for (unsigned int i = 0; i < recv_loop; i++)
     {

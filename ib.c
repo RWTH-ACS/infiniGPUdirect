@@ -102,10 +102,8 @@ static int device_id = 0;
 static uint32_t max_qp_wr = 8192; /*device parameter: max number of Work Requests in on QP*/
 
 
-static struct ibv_mr *mrs[32]; /*TODO make into list for dynamic length*/
-
-
-static oob_t oob;
+static struct ibv_mr *mrs[32]; /*TODO make into list for dynamic length, wiederverwendbar*/
+//klare trennung benchmark infiniband library
 
 /**
  * \brief IB synchronization barrier
@@ -741,31 +739,21 @@ int ib_init(int _device_id)
     return 0;
 }
 
-/* TODO: Both next functions should be solved outside this file and be removed from here */
-int ib_init_oob_listener(uint16_t port)
-{
-    return oob_init_listener(&oob, port);
-}
-int ib_init_oob_sender(const char* address, uint16_t port)
-{
-    return oob_init_sender(&oob, address, port);
-}
-
 /**
  * \brief Connects IB peers. Responder side
  * 
  * Initializes local communication buffer and connects it with the remote buffer
  * Exchanges QP information
  */
-int ib_connect_responder(void *memreg, int mr_id)
+int ib_connect_responder(void *memreg, int mr_id, oob_t *oob)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
     /* initialize loc comm buf and connect to remote */
     ib_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    oob_receive(&oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
-    oob_send(&oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_receive(oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_send(oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
 
     ib_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_com_hndl.rem_com_buf.qp_info.addr;
 
@@ -779,15 +767,15 @@ int ib_connect_responder(void *memreg, int mr_id)
  * initializes local communication buffer and connects it with the remote buffer
  * exchanges QP information
  */
-int ib_connect_requester(void *memreg, int mr_id, char *responder_address)
+int ib_connect_requester(void *memreg, int mr_id, char *responder_address, oob_t *oob)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
     /* initialize loc comm buf and connect to remote */
     ib_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    oob_send(&oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
-    oob_receive(&oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_send(oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_receive(oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
 
     ib_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_com_hndl.rem_com_buf.qp_info.addr;
 

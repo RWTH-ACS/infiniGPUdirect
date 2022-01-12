@@ -25,10 +25,12 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include "oob.h"
+
 
 int ib_init(int _device_id);
-int ib_connect_responder(void *memreg, int mr_id);
-int ib_connect_requester(void *memreg, int mr_id, char *responder_address);
+int ib_connect_responder(void *memreg, int mr_id, oob_t *oob);
+int ib_connect_requester(void *memreg, int mr_id, char *responder_address, oob_t *oob);
 void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg);
 void ib_cleanup(void);
 void ib_final_cleanup(void);
@@ -38,8 +40,4 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
 void ib_msg_recv(uint32_t length, int mr_id, int iterations);
 int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem, int iterations);
 
-
-#include <stdint.h>
-int ib_init_oob_listener(uint16_t port);
-int ib_init_oob_sender(const char* address, uint16_t port);
 
