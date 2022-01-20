@@ -28,7 +28,7 @@
 #include "oob.h"
 
 
-int ib_init(int _device_id);
+int ib_init(int _device_id, uint32_t *max_msg_size);
 int ib_connect_responder(void *memreg, int mr_id, oob_t *oob);
 int ib_connect_requester(void *memreg, int mr_id, char *responder_address, oob_t *oob);
 void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg);

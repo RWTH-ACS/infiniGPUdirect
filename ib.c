@@ -469,6 +469,7 @@ static inline void cleanup_recv_list(void)
  */
 struct ibv_send_wr * ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
 {
+
     //memset(ib_com_hndl.loc_com_buf.send_buf, 0x42, ib_com_hndl.buf_size);
     static uint8_t one = 1;
     /* create work request */
@@ -657,7 +658,7 @@ void ib_post_recv_queue(int number)
  * Finds and opens IB device and corresponding port.
  * Gets port attributes and allocates protection domain
  */
-int ib_init(int _device_id)
+int ib_init(int _device_id, uint32_t *max_msg_size)
 {
     device_id = _device_id;
     /* initialize communication handler */
@@ -749,7 +750,7 @@ int ib_init(int _device_id)
         fprintf(stderr, "[ERROR] No active port found. Abort!\n");
         exit(EXIT_FAILURE);
     }
-
+    *max_msg_size = ib_com_hndl.port_attr.max_msg_sz;
 /*    fprintf(stderr, "[INFO] Using device '%s' and port %u\n",
             ibv_get_device_name(device_list[cur_dev]),
             ib_com_hndl.used_port); */
