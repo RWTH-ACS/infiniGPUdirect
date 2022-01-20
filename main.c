@@ -55,6 +55,7 @@ static int extended_output = 0;
 static int short_output = 0;
 static int sysmem_only = 0;
 static int send_list = 0;
+static int only_mem_size = 0;
 
 static int tcp_port = DEFAULT_TCP_PORT;
 static int memcopy_iterations = DEFAULT_MEMCOPY_ITERATIONS;
@@ -376,6 +377,7 @@ int main(int argc, char **argv)
           {"short", no_argument,  &short_output, 1},
           {"sysmem", no_argument,  &sysmem_only, 1},
           {"sendlist", no_argument,  &send_list, 1},
+          {"onlymemsize", no_argument,  &only_mem_size, 1},
           {0, 0, 0, 0}
         };
 
@@ -425,6 +427,8 @@ int main(int argc, char **argv)
         }
     }
 
+    if(only_mem_size) memcopy_iterations = 1;
+
     double times[memcopy_iterations];
 
     srand48(getpid() * time(NULL));
@@ -466,7 +470,7 @@ int main(int argc, char **argv)
 
     if(extended_output)
     {
-        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, sysmem_only, send_list);
+        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, sysmem_only, send_list, only_mem_size);
     }
 
     if (server) {
