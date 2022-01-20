@@ -48,6 +48,7 @@
 #define DEFAULT_SIZE (128 * (1e6))      // 32 M
 //#define DEFAULT_SIZE (512ULL*1024ULL*1024ULL)      // 512 M
 //#define GPU_TIMING 
+#define PAGE_ROUND_UP(x) ( (((x)) + 0x1000-1)  & (~(0x1000-1)) )
 
 static int no_p2p = 0;
 static int extended_output = 0;
@@ -363,6 +364,7 @@ int main(int argc, char **argv)
     int device_id_param = 0;
     int gpu_id = 0;
     int mem_size = DEFAULT_SIZE;
+    uint32_t max_msg_size = 0;
 
 
     while (1)
@@ -423,11 +425,6 @@ int main(int argc, char **argv)
         }
     }
 
-    if(extended_output)
-    {
-        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, sysmem_only, send_list);
-    }
-
     double times[memcopy_iterations];
 
     srand48(getpid() * time(NULL));
@@ -457,7 +454,21 @@ int main(int argc, char **argv)
     void * d_idata;
 
 
-    ib_init(device_id_param);
+    ib_init(device_id_param, &max_msg_size);
+
+    if(PAGE_ROUND_UP(mem_size + 2) > max_msg_size){
+        if(extended_output) fprintf(stderr, "the mem_size is too large, start splitting...\n");
+        int splits = round(mem_size/max_msg_size);
+        warmup_iterations = warmup_iterations*splits;
+        memcopy_iterations = memcopy_iterations*splits;
+        mem_size = max_msg_size - (PAGE_ROUND_UP(max_msg_size + 2) - max_msg_size);
+    }
+
+    if(extended_output)
+    {
+        print_variables(server, peer_node, device_id_param, gpu_id, mem_size, memcopy_iterations, warmup_iterations, tcp_port, no_p2p, sysmem_only, send_list);
+    }
+
     if (server) {
 
         if(extended_output){
