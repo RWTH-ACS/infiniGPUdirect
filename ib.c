@@ -87,6 +87,7 @@ typedef struct ib_com_hndl { /*Communication Handler: contains all necessary inf
     struct ibv_qp           *qp;        /* queue pair */
     struct ibv_comp_channel     *comp_chan;     /* completion event channel */
     struct ibv_send_wr      *send_wr;   /* data send list */
+    struct ibv_recv_wr      *recv_wr;   /* data send list */
     ib_com_buf_t         loc_com_buf;
     ib_com_buf_t         rem_com_buf;
     uint8_t             used_port;  /* port of the IB device */
@@ -102,10 +103,8 @@ static int device_id = 0;
 static uint32_t max_qp_wr = 8192; /*device parameter: max number of Work Requests in on QP*/
 
 
-static struct ibv_mr *mrs[32]; /*TODO make into list for dynamic length*/
-
-
-static oob_t oob;
+static struct ibv_mr *mrs[32]; /*TODO make into list for dynamic length, wiederverwendbar*/
+//klare trennung benchmark infiniband library
 
 /**
  * \brief IB synchronization barrier
@@ -211,7 +210,7 @@ size_t ib_register_memreg(void** mem_address, size_t memsize, int mr_id)
 /**
  * \brief allocates and registers a memory region with the protection domain
  * 
- * allocates rounded up memory region. Parameter gpumemreg signals if it should be system or gpu memory
+ * allocates a rounded up memory region. Parameter gpumemreg signals if it should be system or gpu memory
  */
 size_t ib_allocate_memreg(void **mem_address, size_t memsize, int mr_id, bool gpumemreg)
 {
@@ -355,6 +354,9 @@ void ib_init_com_hndl(int mr_id)
     ib_com_hndl.loc_com_buf.qp_info.key  = mrs[mr_id]->lkey;
     ib_com_hndl.loc_com_buf.qp_info.addr = (uint64_t)ib_com_hndl.loc_com_buf.recv_buf;
     ib_com_hndl.loc_com_buf.qp_info.lid  = ib_com_hndl.port_attr.lid;
+
+    ib_com_hndl.send_wr = NULL;
+    ib_com_hndl.recv_wr = NULL;
 }
 
 /**
@@ -440,14 +442,34 @@ static inline void cleanup_send_list(void)
 }
 
 /**
+ * \brief Cleans up list of recv work requests
+ *
+ * Frees up all wr that are still saved in the list headed by ib_com_hndl.recv_wr (each wr contains a pointer to the next wr)
+ * As ib_com_hndl.send_wr is the list given to ibv_post_send this needs to be called after each post to free memory and to prevent dublicate transmissions
+ */
+static inline void cleanup_recv_list(void)
+{
+    struct ibv_recv_wr *cur_recv_wr = ib_com_hndl.recv_wr;
+    struct ibv_recv_wr *tmp_recv_wr = NULL;
+    while (cur_recv_wr != NULL) {
+        free(cur_recv_wr->sg_list);
+        tmp_recv_wr = cur_recv_wr;
+        cur_recv_wr = cur_recv_wr->next;
+        free(tmp_recv_wr);
+    }
+
+    ib_com_hndl.recv_wr = NULL;
+}
+
+/**
  * \brief Prepares Send Work Request 'ibv_send_wr'
  *
  * This function prepares an 'ibv_send_wr' structure for the
  * transmission of a single memory page using the IBV_WR_RDMA_WRITE verb.
  */
-void ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
+struct ibv_send_wr * ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr)
 {
-    
+
     //memset(ib_com_hndl.loc_com_buf.send_buf, 0x42, ib_com_hndl.buf_size);
     static uint8_t one = 1;
     /* create work request */
@@ -486,8 +508,10 @@ void ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, s
 	send_wr->imm_data		= htonl(0x1);
 
     ib_com_hndl.send_wr = send_wr;
+    return send_wr;
 
 }
+
 
 
 /**
@@ -497,14 +521,8 @@ void ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, s
  * ibv_post_send() processes the whole linked list. Pointer to next WR in current ibv_send_wr
  *
  */
-void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int send_list, int iterations)
+void ib_post_send_queue(int number)
 {
-
-//create send WR if we want to send only one
-    if(!send_list){
-        ib_create_send_wr(memptr, length, mr_id, fromgpumem, NULL);
-    }
-
     struct ibv_wc wc;
     struct ibv_send_wr *bad_wr;
 
@@ -517,14 +535,13 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
         exit(EXIT_FAILURE);
     }
 
+
     /* wait for send WRs if CQ is full */
     int res = 0;
-    int stop_condition = send_list ? iterations : 1;
 
     do
-    {
-        
-        if ((res += ibv_poll_cq(ib_com_hndl.cq, iterations, &wc)) < 0)
+    {        
+        if ((res += ibv_poll_cq(ib_com_hndl.cq, number, &wc)) < 0)
         {
             fprintf(stderr,
                     "[ERROR] Could not poll on CQ - %d (%s). Abort!\n",
@@ -534,7 +551,7 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
         }
 
 
-    } while (res < stop_condition);
+    } while (res < number);
 
     if (wc.status != IBV_WC_SUCCESS)
     {
@@ -546,46 +563,53 @@ void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int se
     }
 
     cleanup_send_list();
+
+}
+
+/**
+ * \brief Prepares Receive Work Request 'ibv_recv_wr'
+ *
+ * This function prepares an 'ibv_recv_wr' structure for the
+ * transmission of a single memory page using the IBV_WR_RDMA_WRITE verb.
+ */
+struct ibv_recv_wr * ib_create_recv_wr(int mr_id, struct ibv_recv_wr * next_recv_wr)
+{
+    /* create work request */
+    struct ibv_recv_wr *recv_wr =  (struct ibv_recv_wr*)calloc(1, sizeof(struct ibv_recv_wr));
+    struct ibv_sge *sge =  (struct ibv_sge*)calloc(1, sizeof(struct ibv_sge));
+    uint32_t recv_buf = 0;
+
+    /* basic work request configuration */
+	recv_wr->wr_id      = 0;
+    recv_wr->next       = next_recv_wr;
+	recv_wr->sg_list    = sge;
+	recv_wr->num_sge    = 1;
+
+    recv_wr->sg_list->addr = (uintptr_t)&recv_buf;
+    recv_wr->sg_list->length = sizeof(recv_buf);
+    recv_wr->sg_list->lkey = mrs[mr_id]->lkey;
+    
+    ib_com_hndl.recv_wr = recv_wr;
+    return recv_wr;
+
 }
 
 /**
  * \brief Receives data
- * 
+ * length used to be a prop? 
  * Posts linked list of receive WRs via ibv_post_recv verb to the QP and waits for incoming completion queue events
  * ibv_post_recv() processes the whole linked list. Pointer to next WR in current ibv_recv_wr
  *
  */
-void ib_msg_recv(uint32_t length, int mr_id, int iterations)
+void ib_post_recv_queue(int number)
 {
-
 	/* post recv matching IBV_RDMA_WRITE_WITH_IMM */
 	struct ibv_cq *ev_cq;
 	void *ev_ctx;
-	struct ibv_sge sg;
-	struct ibv_recv_wr recv_wr;
 	struct ibv_recv_wr *bad_wr;
-	uint32_t recv_buf = 0;
-    struct ibv_recv_wr* last_recv_wr = NULL;
-
-	for (unsigned int i = 0; i < iterations; i++){
-
-        memset(&sg, 0, sizeof(sg));
-	    sg.addr	  = (uintptr_t)&recv_buf;
-	    sg.length = sizeof(recv_buf);
-	    sg.lkey	  = mrs[mr_id]->lkey;
-
-	    memset(&recv_wr, 0, sizeof(recv_wr));
-	    recv_wr.wr_id      = 0;
-        recv_wr.next       = last_recv_wr;
-	    recv_wr.sg_list    = &sg;
-	    recv_wr.num_sge    = 1;
-
-        last_recv_wr = &recv_wr;
-
-    }
 
 
-	if (ibv_post_recv(ib_com_hndl.qp, &recv_wr, &bad_wr) < 0) {
+	if (ibv_post_recv(ib_com_hndl.qp, ib_com_hndl.recv_wr, &bad_wr) < 0) {
 	        fprintf(stderr,
 			"[ERROR] Could post recv - %d (%s). Abort!\n",
 			errno,
@@ -622,7 +646,9 @@ void ib_msg_recv(uint32_t length, int mr_id, int iterations)
         ibv_ack_cq_events(ib_com_hndl.cq, 1);
 
         res++;
-    } while (res < iterations);
+    } while (res < number);
+
+    cleanup_recv_list();
 
 }
 
@@ -632,7 +658,7 @@ void ib_msg_recv(uint32_t length, int mr_id, int iterations)
  * Finds and opens IB device and corresponding port.
  * Gets port attributes and allocates protection domain
  */
-int ib_init(int _device_id)
+int ib_init(int _device_id, uint32_t *max_msg_size)
 {
     device_id = _device_id;
     /* initialize communication handler */
@@ -724,7 +750,7 @@ int ib_init(int _device_id)
         fprintf(stderr, "[ERROR] No active port found. Abort!\n");
         exit(EXIT_FAILURE);
     }
-
+    *max_msg_size = ib_com_hndl.port_attr.max_msg_sz;
 /*    fprintf(stderr, "[INFO] Using device '%s' and port %u\n",
             ibv_get_device_name(device_list[cur_dev]),
             ib_com_hndl.used_port); */
@@ -741,31 +767,21 @@ int ib_init(int _device_id)
     return 0;
 }
 
-/* TODO: Both next functions should be solved outside this file and be removed from here */
-int ib_init_oob_listener(uint16_t port)
-{
-    return oob_init_listener(&oob, port);
-}
-int ib_init_oob_sender(const char* address, uint16_t port)
-{
-    return oob_init_sender(&oob, address, port);
-}
-
 /**
  * \brief Connects IB peers. Responder side
  * 
  * Initializes local communication buffer and connects it with the remote buffer
  * Exchanges QP information
  */
-int ib_connect_responder(void *memreg, int mr_id)
+int ib_connect_responder(void *memreg, int mr_id, oob_t *oob)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
     /* initialize loc comm buf and connect to remote */
     ib_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    oob_receive(&oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
-    oob_send(&oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_receive(oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_send(oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
 
     ib_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_com_hndl.rem_com_buf.qp_info.addr;
 
@@ -779,15 +795,15 @@ int ib_connect_responder(void *memreg, int mr_id)
  * initializes local communication buffer and connects it with the remote buffer
  * exchanges QP information
  */
-int ib_connect_requester(void *memreg, int mr_id, char *responder_address)
+int ib_connect_requester(void *memreg, int mr_id, char *responder_address, oob_t *oob)
 {
     ib_com_hndl.loc_com_buf.recv_buf = memreg;
     /* initialize loc comm buf and connect to remote */
     ib_init_com_hndl(mr_id);
 
     /* exchange QP information */
-    oob_send(&oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
-    oob_receive(&oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_send(oob, &ib_com_hndl.loc_com_buf.qp_info, sizeof(ib_qp_info_t));
+    oob_receive(oob, &ib_com_hndl.rem_com_buf.qp_info, sizeof(ib_qp_info_t));
 
     ib_com_hndl.rem_com_buf.recv_buf = (uint8_t*)ib_com_hndl.rem_com_buf.qp_info.addr;
 

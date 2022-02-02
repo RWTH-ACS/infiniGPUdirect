@@ -25,21 +25,19 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include "oob.h"
 
-int ib_init(int _device_id);
-int ib_connect_responder(void *memreg, int mr_id);
-int ib_connect_requester(void *memreg, int mr_id, char *responder_address);
+
+int ib_init(int _device_id, uint32_t *max_msg_size);
+int ib_connect_responder(void *memreg, int mr_id, oob_t *oob);
+int ib_connect_requester(void *memreg, int mr_id, char *responder_address, oob_t *oob);
 void ib_free_memreg(void* memreg, int mr_id, bool gpumemreg);
 void ib_cleanup(void);
 void ib_final_cleanup(void);
 int ib_allocate_memreg(void** mem_address, int memsize, int mr_id, bool gpumemreg);
-int ib_responder_send_result(void *memptr, int mr_id, int length, char *peer_node);
-void ib_msg_send(void *memptr, int mr_id, size_t length, bool fromgpumem, int send_list, int iterations);
-void ib_msg_recv(uint32_t length, int mr_id, int iterations);
-int ib_prepare_send_list(void *memptr, int mr_id, size_t length, bool fromgpumem, int iterations);
+struct ibv_send_wr * ib_create_send_wr(void *memreg, size_t length, int mr_id, bool gpumemreg, struct ibv_send_wr * next_send_wr);
+void ib_post_send_queue(int number);
+struct ibv_recv_wr * ib_create_recv_wr(int mr_id, struct ibv_recv_wr * next_recv_wr);
+void ib_post_recv_queue(int number);
 
-
-#include <stdint.h>
-int ib_init_oob_listener(uint16_t port);
-int ib_init_oob_sender(const char* address, uint16_t port);
 

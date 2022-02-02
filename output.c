@@ -96,7 +96,7 @@ void print_times(enum print_flags flags, size_t memSize, char * type, double* ti
 
 }
 
-void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, int mem_size, int iterations, int warmup, int tcp, int nop2p, int sysmem, int sendlist){
+void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, int mem_size, int iterations, int warmup, int tcp, int nop2p, int sysmem, int sendlist, int onlymemsize){
     printf("-----------------------------------------------\n");
     server ? printf("Peer (Client): %s\n", peer_node) : printf("Peer (Server): %s\n", peer_node);
     printf("InfiniBand device: %d\n", ib_device_id);
@@ -108,6 +108,7 @@ void print_variables(int server, char* peer_node, int ib_device_id, int gpu_id, 
     if(nop2p) printf("Using NO peer to peer\n");
     if(sysmem) printf("Data transfer only between system memory\n");
     if(sendlist) printf("Data transfer via only one post of a list\n");
+    if(onlymemsize) printf("Only send the defined memory size, split into iterations if necessary\n");
 #ifdef GPU_TIMING
     printf("Using GPU timer\n");
 #endif
@@ -122,6 +123,6 @@ void print_help(int default_size, int default_memcopy_iterations, int default_wa
                     "-w            <warmup iterations> (default %d)\n -t            <TCP port> (default %d)\n"
                     " --nop2p       disable peer to peer (flag)\n --extended    extended terminal output (flag)\n --short       short terminal output (flag)\n"
                     " --sysmem      data transfer only between system memory (flag)\n"
-                    " --sendlist    send all iterations at once as a list of WRs (flag)\n",
+                    " --sendlist    send all iterations at once as a list of WRs (flag)\n --onlymemsize Only send the defined memory size, split into iterations if necessary\n (flag)\n",
                      default_size, default_memcopy_iterations, default_warmup_iterations, default_tcp_port);
 }

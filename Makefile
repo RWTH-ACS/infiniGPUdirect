@@ -18,7 +18,7 @@ LD_FLAGS = $(LIB_FLAGS) -libverbs -lcudart -lm
 
 
 
-ibTest: main.o ib.o oob.o output.o
+ibTest: main.o ib.o oob.o output.o ib-plus.o
 	$(LD) $(CC_FLAGS) -o $@ $^ $(LD_FLAGS)
 
 ib.o: ib.c
@@ -28,6 +28,9 @@ oob.o: oob.c
 	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
 
 output.o: output.c
+	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
+
+ib-plus.o: ib-plus.c
 	$(CC) $(CC_FLAGS) -c -o $@ $^ $(LD_FLAGS)
 
 main.o: main.c 
